@@ -11,6 +11,7 @@ Controles:
 - Clic en la escena o barra espaciadora: pausar o reanudar
 - ← / →: retroceder o avanzar 5 segundos
 - R: volver a empezar
+- N o botón del bocadillo: activar o silenciar la narración
 - M o botón del altavoz: activar o silenciar la música
 - Barra inferior: saltar a cualquier momento
 
@@ -26,11 +27,17 @@ Controles:
 8. Dibujo número 2: el elefante dentro de la boa. «Siempre necesitan explicaciones».
 9. Cierre.
 
+## Narración
+
+El texto se lee en voz alta con la síntesis de voz del propio navegador (Web Speech API). Se elige una voz en español latinoamericano (es-MX, es-US, es-419…) si el dispositivo la tiene, y se le sube el tono para que suene infantil. La respuesta de las personas mayores usa un tono grave. Mientras habla la voz, la música baja de volumen, y si una frase tarda más que su escena, la animación espera con el texto en pantalla.
+
+La voz exacta depende del sistema: Windows, macOS, Android e iOS traen voces distintas, y en algunos solo hay español de España. Las voces «naturales» o «en línea» (Edge, Chrome) suenan mejor.
+
 ## Música
 
 La música ambiente se genera en el navegador con Web Audio, sin archivos de audio: pads suaves, notas de caja de música, bajo y reverberación. Cada escena tiene su ánimo: soñador en la portada y el cierre, marimba y maracas en la selva, una nana lenta durante la digestión, un arpegio juguetón con los dibujos y las personas mayores, y acordes misteriosos al revelar la boa.
 
-Los navegadores no permiten sonido sin un gesto del usuario, así que la música empieza con el primer toque, clic o tecla (o con el botón «Activar música»). Se detiene al pausar.
+Los navegadores no permiten sonido sin un gesto del usuario, así que la voz y la música empiezan con el primer toque, clic o tecla (o con el botón «Activar voz y música»). Se detiene al pausar.
 
 ## Sobre el texto
 

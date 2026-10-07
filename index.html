@@ -21,6 +21,7 @@
     color-scheme: dark;
   }
   html, body { height: 100%; }
+  [hidden] { display: none !important; }
   body {
     margin: 0;
     background: var(--night);
@@ -110,6 +111,9 @@
     <button id="restart" type="button" aria-label="Volver a empezar">
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3a7 7 0 1 1-6.6 4.7l2 .7A5 5 0 1 0 10 5v3L5 4l5-4z" fill="currentColor"/></svg>
     </button>
+    <button id="voice" type="button" aria-label="Narración" aria-pressed="false">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4h14v9H9l-4 3v-3H3z" fill="currentColor"/></svg>
+    </button>
     <button id="music" type="button" aria-label="Música ambiente" aria-pressed="false">
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 7h4l5-4v14l-5-4H2z" fill="currentColor"/><path id="musicWaves" d="M13.5 6.5a5 5 0 0 1 0 7M15.5 4a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     </button>
@@ -118,7 +122,7 @@
   </div>
   <button class="music-hint" id="musicHint" type="button">
     <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 7h4l5-4v14l-5-4H2z" fill="currentColor"/><path d="M13.5 6.5a5 5 0 0 1 0 7M15.5 4a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-    Activar música
+    Activar voz y música
   </button>
 </div>
 <script>
@@ -774,6 +778,21 @@ function drawPlanet(cx, cy, r, t) {
 /* ================================================================
    Escenas
    ================================================================ */
+/* Texto de la página (los *asteriscos* marcan palabras destacadas) */
+const TXT = {
+  libro: 'Cuando tenía seis años vi una vez una imagen magnífica en un libro sobre la Selva Virgen que se llamaba *«Historias vividas».*',
+  boa: 'Mostraba una *serpiente boa* que se tragaba a una *fiera.* Esta es la copia del dibujo.',
+  cita1: 'En el libro se decía: «Las serpientes boas tragan a su presa entera, *sin masticarla.»*',
+  cita2: '«Después ya no pueden moverse y duermen durante los *seis meses* que dura su *digestión.»*',
+  reflexion: 'Entonces reflexioné mucho sobre las aventuras de la jungla y, a mi vez, conseguí trazar con un lápiz de color *mi primer dibujo.*',
+  dibujo1: 'Mi *dibujo número 1.* Era así:',
+  mostre: 'Mostré mi *obra maestra* a las personas mayores y les pregunté si mi dibujo les daba *miedo.*',
+  respondieron: 'Me respondieron:',
+  sombrero: '¿Por qué habría de dar miedo un *sombrero?*',
+  noera: 'Mi dibujo no representaba un *sombrero.* Representaba una *serpiente boa* que digería un *elefante.*',
+  interior: 'Entonces dibujé el *interior* de la serpiente boa, para que las personas mayores pudieran entender.',
+  siempre: 'Siempre necesitan *explicaciones.*',
+};
 const SCENES = [];
 const scene = (dur, draw) => SCENES.push({ dur, draw });
 
@@ -869,7 +888,7 @@ scene(9, t => {
     }
   }
   ctx.restore();
-  narr('Cuando tenía seis años vi una vez una imagen magnífica en un libro sobre la Selva Virgen que se llamaba *«Historias vividas».*', t - .3, 8.3);
+  narr(TXT.libro, t - .3, 8.3);
 });
 
 // 2 · La boa se traga a la fiera
@@ -898,8 +917,8 @@ scene(14.5, t => {
       drawBoa(spine, wfn, { mouth, t });
     }
   }, () => drawSun(250, 330, 70, t));
-  narr('Mostraba una *serpiente boa* que se tragaba a una *fiera.* Esta es la copia del dibujo.', t - .5, 5.8);
-  narr('En el libro se decía: «Las serpientes boas tragan a su presa entera, *sin masticarla.»*', t - 6.6, 7.6, { seed: 5 });
+  narr(TXT.boa, t - .5, 5.8);
+  narr(TXT.cita1, t - 6.6, 7.6, { seed: 5 });
 });
 
 // 3 · Seis meses de digestión
@@ -944,7 +963,7 @@ scene(12.5, t => {
   }
   ctx.restore();
   DIM = d;
-  narr('«Después ya no pueden moverse y duermen durante los *seis meses* que dura su *digestión.»*', t - .4, 11.6, { seed: 7 });
+  narr(TXT.cita2, t - .4, 11.6, { seed: 7 });
 });
 
 // 4 · El primer dibujo
@@ -960,8 +979,8 @@ scene(13.5, t => {
   else if (t < 7.1) { px = tip[0]; py = tip[1]; }
   else { const a = ease((t - 7.1) / 1.2); px = lerp(tip[0], 1980, a); py = lerp(tip[1], 1150, a); }
   drawPencil(px, py + Math.sin(t * 24) * 2, -.78 + Math.sin(t * 9) * .04, C.pencil);
-  narr('Entonces reflexioné mucho sobre las aventuras de la jungla y, a mi vez, conseguí trazar con un lápiz de color *mi primer dibujo.*', t - .3, 8.1);
-  narr('Mi *dibujo número 1.* Era así:', t - 8.7, 4.6, { w: 900, seed: 9 });
+  narr(TXT.reflexion, t - .3, 8.1);
+  narr(TXT.dibujo1, t - 8.7, 4.6, { w: 900, seed: 9 });
 });
 
 // 5 · Las personas mayores
@@ -985,8 +1004,8 @@ scene(13.5, t => {
   drawKid(250, 960, 1.25, t, { coat: [196, 80, 44], hair: [42, 98, 56], wave: t > 1 && t < 6 ? 1 : undefined });
   drawAdult(1250, 970, 1, t, { coat: [214, 72, 42], stache: true, tophat: true, shrug, seed: 2 });
   drawAdult(1560, 970, .94, t, { coat: [352, 80, 52], dress: true, hair: [30, 60, 30], shrug: shrug * .8, ph: 1.4, seed: 4 });
-  narr('Mostré mi *obra maestra* a las personas mayores y les pregunté si mi dibujo les daba *miedo.*', t - .3, 6.8);
-  narr('Me respondieron:', t - 7.1, 6.2, { w: 520, x: 120, seed: 11 });
+  narr(TXT.mostre, t - .3, 6.8);
+  narr(TXT.respondieron, t - 7.1, 6.2, { w: 520, x: 120, seed: 11 });
   // bocadillo
   const bt = t - 7.6;
   if (bt > 0 && bt < 5.6) {
@@ -1000,7 +1019,7 @@ scene(13.5, t => {
     ctx.beginPath(); ctx.moveTo(1230, 312); ctx.lineTo(1262, 380); ctx.lineTo(1302, 324);
     ctx.lineWidth = 7; ctx.strokeStyle = INK; ctx.lineJoin = 'round'; ctx.stroke();
     const font = `900 52px ${FONT_DISP}`;
-    const L = layout('¿Por qué habría de dar miedo un *sombrero?*', font, 640);
+    const L = layout(TXT.sombrero, font, 640);
     words(L, font, 52, 1340, 210 - L.lines.length * 52 * 1.2 / 2 - 6, bt - .2, { wps: 4, lh: 1.2, hlColor: '#d6246f' });
     ctx.restore();
   }
@@ -1036,7 +1055,7 @@ scene(11.5, t => {
     if (c2 > 0) { ctx.beginPath(); ctx.moveTo(170, -170); ctx.lineTo(170 - 340 * c2, -170 + 340 * c2); ctx.stroke(); }
     ctx.lineCap = 'butt'; ctx.restore();
   }
-  narr('Mi dibujo no representaba un *sombrero.* Representaba una *serpiente boa* que digería un *elefante.*', t - .3, 11);
+  narr(TXT.noera, t - .3, 11);
 });
 
 // 7 · Dibujo número 2
@@ -1057,8 +1076,8 @@ scene(14.5, t => {
   else if (t < 6.8) { px = tgt[0] + Math.sin(t * 13) * 14; py = tgt[1] + Math.cos(t * 11) * 10; }
   else { const a = ease((t - 6.8) / 1.2); px = lerp(tgt[0], 1990, a); py = lerp(tgt[1], 1160, a); }
   drawPencil(px, py, -.8, [214, 50, 50]);
-  narr('Entonces dibujé el *interior* de la serpiente boa, para que las personas mayores pudieran entender.', t - .3, 7.4);
-  narr('Siempre necesitan *explicaciones.*', t - 7.9, 6.4, { size: 66, w: 1100, y: 70, seed: 13, paper: [46, 100, 66], font: FONT_DISP, weight: 900, wps: 2.6 });
+  narr(TXT.interior, t - .3, 7.4);
+  narr(TXT.siempre, t - 7.9, 6.4, { size: 66, w: 1100, y: 70, seed: 13, paper: [46, 100, 66], font: FONT_DISP, weight: 900, wps: 2.6 });
 });
 
 // 8 · Cierre
@@ -1141,12 +1160,16 @@ function setPlaying(p) {
   playIcon.setAttribute('d', playing ? 'M5 3h4v14H5zM11 3h4v14h-4z' : 'M5 3l12 7-12 7z');
   playBtn.setAttribute('aria-label', playing ? 'Pausar' : 'Reproducir');
   Music.sync();
+  Voice.sync();
   poke();
 }
 function frame(now) {
   const dt = Math.min(.05, (now - last) / 1000); last = now;
   if (ready) {
-    if (playing) { T += dt; if (T >= TOTAL) { T = TOTAL; setPlaying(false); } }
+    if (playing) {
+      const nt = Voice.advance(T, T + dt);
+      T = nt; if (T >= TOTAL) { T = TOTAL; setPlaying(false); }
+    }
     render(Math.min(T, TOTAL - 1e-3));
     seek.value = Math.round(T / TOTAL * 1000);
     timeEl.textContent = `${fmt(T)} / ${fmt(TOTAL)}`;
@@ -1154,15 +1177,15 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 playBtn.addEventListener('click', () => setPlaying(!playing));
-document.getElementById('restart').addEventListener('click', () => { T = 0; setPlaying(true); });
-seek.addEventListener('input', () => { T = seek.value / 1000 * TOTAL; poke(); });
+document.getElementById('restart').addEventListener('click', () => { T = 0; Voice.reset(); setPlaying(true); });
+seek.addEventListener('input', () => { T = seek.value / 1000 * TOTAL; Voice.reset(); poke(); });
 cv.addEventListener('click', () => { if (swallowClick) { swallowClick = false; return; } setPlaying(!playing); });
 window.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' && e.key !== ' ') return;
   if (e.key === ' ') { e.preventDefault(); setPlaying(!playing); }
-  else if (e.key === 'ArrowRight') { T = Math.min(TOTAL, T + 5); poke(); }
-  else if (e.key === 'ArrowLeft') { T = Math.max(0, T - 5); poke(); }
-  else if (e.key === 'r' || e.key === 'R') { T = 0; setPlaying(true); }
+  else if (e.key === 'ArrowRight') { T = Math.min(TOTAL, T + 5); Voice.reset(); poke(); }
+  else if (e.key === 'ArrowLeft') { T = Math.max(0, T - 5); Voice.reset(); poke(); }
+  else if (e.key === 'r' || e.key === 'R') { T = 0; Voice.reset(); setPlaying(true); }
 });
 /* ================================================================
    Música ambiente generativa (Web Audio, sin archivos)
@@ -1177,7 +1200,7 @@ const Music = (() => {
   const MYSTERY = { bpm: 66, beats: 8, prog: [[50, 57, 62, 64], [46, 53, 58, 62], [48, 55, 60, 62], [45, 52, 57, 61]], scale: [69, 70, 74, 76, 77], plink: .25, cutoff: 2400 };
   const MOODS = [DREAM, DREAM, JUNGLE, LULLABY, PLAYFUL, PLAYFUL, MYSTERY, DREAM, DREAM];
 
-  let ac = null, master, bus, lp, enabled = false, timer = null;
+  let ac = null, master, bus, lp, enabled = false, timer = null, level = .6;
   let nextTime = 0, step = 0, mood = null, noise = null;
   const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -1273,7 +1296,7 @@ const Music = (() => {
     master.gain.setValueAtTime(master.gain.value, now);
     if (audible) {
       ac.resume();
-      master.gain.linearRampToValueAtTime(.6, now + 1.2);
+      master.gain.linearRampToValueAtTime(level, now + .8);
       if (!timer) timer = setInterval(tick, 60);
     } else {
       master.gain.linearRampToValueAtTime(0, now + .35);
@@ -1289,6 +1312,10 @@ const Music = (() => {
       apply();
     },
     sync: apply,
+    duck(on) {
+      const l = on ? .22 : .6;
+      if (l !== level) { level = l; apply(); }
+    },
   };
 })();
 const musicBtn = document.getElementById('music'), musicHint = document.getElementById('musicHint');
@@ -1302,18 +1329,110 @@ function setMusic(on) {
   musicHint.hidden = true;
 }
 musicBtn.addEventListener('click', e => { e.stopPropagation(); setMusic(!Music.enabled); });
-musicHint.addEventListener('click', e => { e.stopPropagation(); setMusic(true); });
+musicHint.addEventListener('click', e => { e.stopPropagation(); setMusic(true); setVoice(true); });
 // La primera interacción del espectador activa la música (los navegadores exigen un gesto)
 let swallowClick = false;
 const firstGesture = e => {
   if (musicChosen) return;
-  swallowClick = e.target === cv; // ese primer toque solo enciende la música, no pausa
+  swallowClick = e.target === cv; // ese primer toque solo enciende el sonido, no pausa
   setMusic(true);
+  if (!voiceChosen) setVoice(true);
 };
 window.addEventListener('pointerdown', firstGesture, { once: true });
 window.addEventListener('keydown', firstGesture, { once: true });
 window.addEventListener('keydown', e => { if (e.key === 'm' || e.key === 'M') setMusic(!Music.enabled); });
 document.getElementById('musicWaves').style.opacity = .2;
+
+/* ================================================================
+   Narración con voz (Web Speech API del navegador)
+   ================================================================ */
+// Momento de cada frase: escena, inicio y final del panel (segundos locales)
+const CUES = [
+  [0, .8, 6.0, 'El Principito. Capítulo uno.'],
+  [1, .3, 8.6, TXT.libro], [2, .5, 6.3, TXT.boa], [2, 6.6, 14.2, TXT.cita1],
+  [3, .4, 12.0, TXT.cita2], [4, .3, 8.4, TXT.reflexion], [4, 8.7, 13.3, TXT.dibujo1],
+  [5, .3, 7.1, TXT.mostre], [5, 7.1, 7.6, TXT.respondieron], [5, 7.6, 13.2, TXT.sombrero, 'adult'],
+  [6, .3, 11.3, TXT.noera], [7, .3, 7.7, TXT.interior], [7, 7.9, 14.3, TXT.siempre],
+  [8, .6, 7.4, 'Fin de la primera página.'],
+].map(([sc, a, b, text, role]) => ({
+  start: SCENES[sc].start + a,
+  hold: SCENES[sc].start + b - .7, // el panel sigue visible aquí: se espera a la voz
+  text: text.replace(/[*«»]/g, ''),
+  role: role || 'kid',
+}));
+const Voice = (() => {
+  const synth = window.speechSynthesis;
+  const supported = !!(synth && window.SpeechSynthesisUtterance);
+  let enabled = false, pending = 0, holdSince = 0, kidVoice = null, adultVoice = null;
+  const LATAM = /^es[-_](419|mx|us|co|cl|pe|ar|ve|ec|gt|cr|pa|uy|py|bo|do|hn|ni|sv|pr|cu)/i;
+  const FEMALE = /paulina|sabina|dalia|m[oó]nica|marisol|elvira|helena|laura|lupe|ximena|camila|renata|paloma|soledad|google español de estados unidos|female|mujer/i;
+  const MALE = /jorge|juan|diego|pablo|ra[uú]l|carlos|[aá]lvaro|enrique|gerardo|\bmale|hombre/i;
+  function pick() {
+    const vs = synth.getVoices().filter(v => /^es/i.test(v.lang));
+    if (!vs.length) return;
+    const base = v => (LATAM.test(v.lang) ? 4 : 0) + (/^es[-_](mx|419|us)/i.test(v.lang) ? 2 : 0) + (/natural|neural|online/i.test(v.name) ? 2 : 0);
+    kidVoice = vs.slice().sort((a, b) => (base(b) + (FEMALE.test(b.name) ? 3 : 0)) - (base(a) + (FEMALE.test(a.name) ? 3 : 0)))[0];
+    adultVoice = vs.slice().sort((a, b) => (base(b) + (MALE.test(b.name) ? 3 : 0)) - (base(a) + (MALE.test(a.name) ? 3 : 0)))[0];
+  }
+  if (supported) { pick(); synth.addEventListener?.('voiceschanged', pick); }
+  function speak(c) {
+    const u = new SpeechSynthesisUtterance(c.text);
+    const adult = c.role === 'adult';
+    try { u.voice = adult ? adultVoice : kidVoice; } catch (e) { /* voz no válida: la del sistema */ }
+    u.lang = u.voice ? u.voice.lang : 'es-MX';
+    // voz infantil: tono alto y ritmo pausado; las personas mayores, grave
+    u.pitch = adult ? .7 : 1.6;
+    u.rate = adult ? .9 : .92;
+    pending++; Music.duck(true);
+    const done = () => { pending = Math.max(0, pending - 1); if (!pending) Music.duck(false); };
+    u.onend = done; u.onerror = done;
+    try { synth.speak(u); } catch (e) { done(); }
+  }
+  function reset() {
+    if (!supported) return;
+    synth.cancel(); pending = 0; holdSince = 0; Music.duck(false);
+  }
+  return {
+    supported,
+    get enabled() { return enabled; },
+    set(on) {
+      enabled = on && supported;
+      if (!enabled) reset();
+      else if (!kidVoice) pick();
+    },
+    sync() {
+      if (!supported || !enabled) return;
+      if (playing) synth.resume(); else synth.pause();
+    },
+    reset,
+    // Avanza el tiempo de t0 a t1: lanza las frases que empiezan y, si la voz
+    // aún habla cuando el panel va a desaparecer, detiene ahí la animación.
+    advance(t0, t1) {
+      if (!enabled) return t1;
+      for (const c of CUES) {
+        if (c.start > t0 && c.start <= t1) speak(c);
+        if (pending && t0 <= c.hold && t1 > c.hold && c.start < t0) {
+          if (!holdSince) holdSince = performance.now();
+          if (performance.now() - holdSince < 12000) return c.hold;
+          pending = 0; Music.duck(false); // la voz no avisó del final: seguir
+        }
+      }
+      holdSince = 0;
+      return t1;
+    },
+  };
+})();
+const voiceBtn = document.getElementById('voice');
+let voiceChosen = false;
+function setVoice(on) {
+  voiceChosen = true;
+  Voice.set(on);
+  voiceBtn.setAttribute('aria-pressed', String(Voice.enabled));
+  voiceBtn.setAttribute('aria-label', Voice.enabled ? 'Silenciar narración' : 'Activar narración');
+}
+if (!Voice.supported) voiceBtn.hidden = true;
+voiceBtn.addEventListener('click', e => { e.stopPropagation(); setVoice(!Voice.enabled); });
+window.addEventListener('keydown', e => { if (e.key === 'n' || e.key === 'N') setVoice(!Voice.enabled); });
 
 let idleTimer;
 function poke() {
