@@ -1,0 +1,1160 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>El Principito, Página Uno</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grandstander:wght@700;900&family=Nunito:wght@800;900&display=swap">
+<style>
+  /* Layout: una sola escena a pantalla completa (lienzo 16:9 centrado) con controles flotantes abajo. */
+  :root {
+    --night: #120a26;      /* fondo del marco, mismo tono que la tinta */
+    --ink: #1b1033;        /* contorno de todas las facetas */
+    --paper: #fbf1d6;      /* papel de los paneles */
+    --gold: #ffc93c;       /* acento: títulos y foco */
+    --rose: #e0307a;       /* palabras destacadas */
+    --hud: rgba(27, 16, 51, .82);
+    --font-display: "Grandstander", "Comic Sans MS", "Trebuchet MS", system-ui, sans-serif;
+    --font-body: "Nunito", "Trebuchet MS", system-ui, sans-serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--night);
+    color: var(--paper);
+    font-family: var(--font-body);
+    overflow: hidden;
+  }
+  .stage {
+    position: relative;
+    height: 100%;
+    width: 100%;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: pointer;
+  }
+  .hud {
+    position: absolute;
+    left: 50%;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    width: min(720px, calc(100% - 32px));
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--hud);
+    border: 3px solid var(--ink);
+    border-radius: 6px;
+    box-shadow: 0 6px 0 var(--ink);
+    transition: opacity .4s ease, transform .4s ease;
+    font-variant-numeric: tabular-nums;
+  }
+  .hud.idle { opacity: 0; transform: translate(-50%, 10px); pointer-events: none; }
+  .hud button {
+    flex: none;
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    background: var(--gold);
+    color: var(--ink);
+    border: 3px solid var(--ink);
+    border-radius: 4px;
+    cursor: pointer;
+    clip-path: polygon(6% 0, 100% 4%, 96% 100%, 0 94%);
+  }
+  .hud button:focus-visible, .hud input:focus-visible { outline: 3px solid var(--rose); outline-offset: 3px; }
+  .hud button svg { width: 20px; height: 20px; }
+  .hud input[type="range"] { flex: 1; min-width: 0; accent-color: var(--gold); }
+  .hud .time { flex: none; font-weight: 800; font-size: 14px; color: var(--paper); }
+  @media (max-width: 480px) { .hud .time { display: none; } }
+</style>
+</head>
+<body>
+<div class="stage" id="stageWrap">
+  <canvas id="stage" role="img" aria-label="Animación en dos dimensiones, estilo low poly, de la primera página de El Principito"></canvas>
+  <div class="hud" id="hud">
+    <button id="play" type="button" aria-label="Pausar">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path id="playIcon" d="M5 3h4v14H5zM11 3h4v14h-4z" fill="currentColor"/></svg>
+    </button>
+    <button id="restart" type="button" aria-label="Volver a empezar">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3a7 7 0 1 1-6.6 4.7l2 .7A5 5 0 1 0 10 5v3L5 4l5-4z" fill="currentColor"/></svg>
+    </button>
+    <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Posición de la animación">
+    <span class="time" id="time">0:00</span>
+  </div>
+</div>
+<script>
+(() => {
+'use strict';
+
+/* ================================================================
+   Utilidades
+   ================================================================ */
+const W = 1920, H = 1080;
+const cv = document.getElementById('stage');
+const ctx = cv.getContext('2d');
+const INK = '#1b1033';
+let DIM = 0; // oscurecimiento global (noche)
+
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = t => (t = clamp(t), t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+const easeOut = t => 1 - Math.pow(1 - clamp(t), 3);
+const easeIn = t => Math.pow(clamp(t), 3);
+const easeBack = t => { t = clamp(t); const c = 1.9; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
+const sstep = (a, b, t) => { t = clamp((t - a) / (b - a)); return t * t * (3 - 2 * t); };
+const hash = n => { const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
+const mixc = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+const hsl = (c, dl = 0) => `hsl(${c[0].toFixed(1)},${clamp(c[1], 0, 100).toFixed(1)}%,${(clamp(c[2] + dl, 0, 100) * (1 - DIM)).toFixed(1)}%)`;
+
+/* ================================================================
+   Primitivas low poly
+   ================================================================ */
+const LX = -0.55, LY = -0.83; // luz desde arriba a la izquierda
+
+function tri(a, b, c, fill, lw) {
+  ctx.beginPath();
+  ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(c[0], c[1]);
+  ctx.closePath();
+  ctx.fillStyle = fill; ctx.fill();
+  if (lw) { ctx.lineWidth = lw; ctx.stroke(); }
+}
+function outline(pts, lw, ink) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+  ctx.lineWidth = lw; ctx.strokeStyle = ink || INK; ctx.lineJoin = 'round';
+  ctx.stroke();
+}
+function shadeFor(mx, my, cx, cy, i, seed, con) {
+  let dx = mx - cx, dy = my - cy; const d = Math.hypot(dx, dy) || 1;
+  dx /= d; dy /= d;
+  return (dx * LX + dy * LY) * con + (hash(i * 7.13 + seed) - .5) * con * .8;
+}
+/* Polígono facetado: anillo exterior + abanico interior, bordes de tinta. */
+function facet(pts, col, o = {}) {
+  const lw = o.lw ?? 5, seed = o.seed ?? 1, con = o.contrast ?? 9;
+  const ilw = o.ilw ?? Math.max(1, lw * .38);
+  let cx = 0, cy = 0;
+  for (const p of pts) { cx += p[0]; cy += p[1]; }
+  cx = cx / pts.length + (o.ox || 0); cy = cy / pts.length + (o.oy || 0);
+  ctx.strokeStyle = o.iink || o.ink || INK; ctx.lineJoin = 'round';
+  const n = pts.length, C = [cx, cy];
+  let k = 0;
+  if (o.simple) {
+    for (let i = 0; i < n; i++) {
+      const a = pts[i], b = pts[(i + 1) % n];
+      tri(a, b, C, hsl(col, shadeFor((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, cx, cy, k++, seed, con)), ilw);
+    }
+  } else {
+    const inner = pts.map((p, i) => {
+      const s = .52 + (hash(i * 1.37 + seed * 3.1) - .5) * .18;
+      return [cx + (p[0] - cx) * s, cy + (p[1] - cy) * s];
+    });
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n, a = pts[i], b = pts[j], c = inner[j], d = inner[i];
+      tri(a, b, c, hsl(col, shadeFor((a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, cx, cy, k++, seed, con)), ilw);
+      tri(a, c, d, hsl(col, shadeFor((a[0] + c[0] + d[0]) / 3, (a[1] + c[1] + d[1]) / 3, cx, cy, k++, seed, con) + 1.5), ilw);
+      tri(d, c, C, hsl(col, shadeFor((c[0] + d[0] + cx) / 3, (c[1] + d[1] + cy) / 3, cx, cy, k++, seed, con) * .6 + 3), ilw);
+    }
+  }
+  if (lw) outline(pts, lw, o.ink);
+}
+/* Franja facetada entre dos polilíneas (cuerpos, troncos, colinas). */
+function strip(top, bot, col, o = {}) {
+  const rows = o.rows ?? 2, lw = o.lw ?? 5, seed = o.seed ?? 2, con = o.contrast ?? 10;
+  const ilw = o.ilw ?? Math.max(1, lw * .38);
+  const n = top.length, g = [];
+  for (let r = 0; r <= rows; r++) {
+    g.push(top.map((p, i) => {
+      const b = bot[i];
+      let t = r / rows;
+      if (r > 0 && r < rows) t += (hash(i * 3.7 + r * 11 + seed) - .5) * .5 / rows;
+      return [lerp(p[0], b[0], t), lerp(p[1], b[1], t)];
+    }));
+  }
+  ctx.strokeStyle = o.iink || o.ink || INK; ctx.lineJoin = 'round';
+  let k = 0;
+  for (let r = 0; r < rows; r++) {
+    const base = (.5 - (r + .5) / rows) * con * 1.2;
+    for (let i = 0; i < n - 1; i++) {
+      const c1 = o.colFn ? o.colFn(i, r) : col;
+      const a = g[r][i], b = g[r][i + 1], c = g[r + 1][i + 1], d = g[r + 1][i];
+      const v1 = base + (hash(k++ * 1.7 + seed) - .5) * con, v2 = base + (hash(k++ * 1.7 + seed) - .5) * con - 2;
+      if ((i + r) % 2) { tri(a, b, c, hsl(c1, v1), ilw); tri(a, c, d, hsl(c1, v2), ilw); }
+      else { tri(a, b, d, hsl(c1, v1), ilw); tri(b, c, d, hsl(c1, v2), ilw); }
+    }
+  }
+  if (lw) outline([...top, ...bot.slice().reverse()], lw, o.ink);
+}
+function ribbon(spine, wfn) {
+  const top = [], bot = [], n = spine.length;
+  for (let i = 0; i < n; i++) {
+    const p = spine[i], a = spine[Math.max(0, i - 1)], b = spine[Math.min(n - 1, i + 1)];
+    let tx = b[0] - a[0], ty = b[1] - a[1]; const d = Math.hypot(tx, ty) || 1;
+    tx /= d; ty /= d;
+    const w = wfn(i / (n - 1)) / 2;
+    top.push([p[0] + ty * w, p[1] - tx * w]);
+    bot.push([p[0] - ty * w, p[1] + tx * w]);
+  }
+  return { top, bot };
+}
+function blob(cx, cy, rx, ry, n, seed, jit = .1, rot = 0) {
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = rot + i / n * Math.PI * 2, r = 1 + (hash(seed * 13.1 + i * 1.7) - .5) * 2 * jit;
+    pts.push([cx + Math.cos(a) * rx * r, cy + Math.sin(a) * ry * r]);
+  }
+  return pts;
+}
+const rectP = (x, y, w, h) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+function dot(x, y, r, fill) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = fill; ctx.fill();
+}
+
+/* Fondo: malla triangular irregular que cubre el lienzo */
+const BG = (() => {
+  const cols = 16, rows = 10, P = [];
+  for (let j = 0; j <= rows; j++) {
+    const row = [];
+    for (let i = 0; i <= cols; i++) {
+      let x = i / cols * W, y = j / rows * H;
+      if (i > 0 && i < cols) x += (hash(i * 13 + j * 7) - .5) * W / cols * .75;
+      if (j > 0 && j < rows) y += (hash(i * 5 + j * 17 + 3) - .5) * H / rows * .75;
+      row.push([x, y]);
+    }
+    P.push(row);
+  }
+  const T = [];
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    const a = P[j][i], b = P[j][i + 1], c = P[j + 1][i + 1], d = P[j + 1][i];
+    if (hash(i + j * 31) > .5) T.push([a, b, c], [a, c, d]); else T.push([a, b, d], [b, c, d]);
+  }
+  T.forEach((t, i) => { t.cx = (t[0][0] + t[1][0] + t[2][0]) / 3; t.cy = (t[0][1] + t[1][1] + t[2][1]) / 3; t.h = hash(i * 3.3); });
+  return T;
+})();
+function drawBg(fn, o = {}) {
+  ctx.strokeStyle = o.stroke || 'rgba(27,16,51,.3)'; ctx.lineJoin = 'round';
+  const v = o.vari ?? 7;
+  for (const t of BG) tri(t[0], t[1], t[2], hsl(fn(t.cx, t.cy), (t.h - .5) * v), o.lw ?? 1.6);
+}
+
+/* ================================================================
+   Texto integrado
+   ================================================================ */
+const FONT_BODY = '"Nunito", "Trebuchet MS", system-ui, sans-serif';
+const FONT_DISP = '"Grandstander", "Comic Sans MS", "Trebuchet MS", sans-serif';
+const layoutCache = new Map();
+function layout(text, font, maxW) {
+  const key = text + '|' + font + '|' + maxW;
+  if (layoutCache.has(key)) return layoutCache.get(key);
+  ctx.font = font;
+  const space = ctx.measureText(' ').width;
+  const lines = [[]]; let lw = 0, hl = false;
+  for (let raw of text.split(' ')) {
+    let wHl = hl;
+    if (raw.startsWith('*')) { raw = raw.slice(1); wHl = true; hl = true; }
+    if (raw.includes('*')) { raw = raw.replace('*', ''); hl = false; }
+    const w = ctx.measureText(raw).width;
+    if (lw > 0 && lw + space + w > maxW) { lines.push([]); lw = 0; }
+    const line = lines[lines.length - 1];
+    line.push({ t: raw, w, x: lw ? lw + space : 0, hl: wHl });
+    lw = (lw ? lw + space : 0) + w;
+  }
+  const L = lines.map(ws => ({ ws, w: ws.length ? ws[ws.length - 1].x + ws[ws.length - 1].w : 0 }));
+  const res = { lines: L, maxW: Math.max(...L.map(l => l.w)) };
+  layoutCache.set(key, res);
+  return res;
+}
+/* Dibuja palabras que aparecen una a una (desde t=0) */
+function words(L, font, size, cx, top, t, o = {}) {
+  const wps = o.wps ?? 3.6, lh = size * (o.lh ?? 1.3);
+  ctx.font = font; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  let idx = 0;
+  L.lines.forEach((line, li) => {
+    const x0 = cx - line.w / 2, y = top + size * .95 + li * lh;
+    for (const w of line.ws) {
+      const a = clamp((t - idx / wps) / .3); idx++;
+      if (a <= 0) continue;
+      const dy = (1 - easeOut(a)) * 16;
+      ctx.save();
+      ctx.globalAlpha *= a;
+      if (o.stroke) { ctx.lineWidth = o.stroke; ctx.strokeStyle = INK; ctx.lineJoin = 'round'; ctx.strokeText(w.t, x0 + w.x, y + dy); }
+      ctx.fillStyle = w.hl ? (o.hlColor || '#d6246f') : (o.color || INK);
+      ctx.fillText(w.t, x0 + w.x, y + dy);
+      ctx.restore();
+    }
+  });
+  return L.lines.length * lh;
+}
+const panelCache = new Map();
+function panelPts(x, y, w, h, seed) {
+  const key = [x, y, w, h, seed].map(Math.round).join(',');
+  if (panelCache.has(key)) return panelCache.get(key);
+  const pts = [], j = (i, s) => (hash(seed * 9.1 + i * 2.3 + s) - .5) * 14;
+  const nx = Math.max(2, Math.round(w / 230)), ny = Math.max(1, Math.round(h / 160));
+  let i = 0;
+  for (let k = 0; k < nx; k++) pts.push([x + w * k / nx + j(i, 1), y + j(i++, 2)]);
+  for (let k = 0; k < ny; k++) pts.push([x + w + j(i, 1), y + h * k / ny + j(i++, 2)]);
+  for (let k = 0; k < nx; k++) pts.push([x + w - w * k / nx + j(i, 1), y + h + j(i++, 2)]);
+  for (let k = 0; k < ny; k++) pts.push([x + j(i, 1), y + h - h * k / ny + j(i++, 2)]);
+  panelCache.set(key, pts);
+  return pts;
+}
+/* Panel de narración: papel facetado + palabras que se revelan */
+function narr(text, t, dur, o = {}) {
+  if (t < 0 || t > dur) return;
+  const dimSave = DIM; DIM = 0;
+  const size = o.size || 46, pad = o.pad || 34;
+  const font = `${o.weight || 800} ${size}px ${o.font || FONT_BODY}`;
+  const w = o.w || 1540;
+  const L = layout(text, font, w - pad * 2);
+  const lh = size * 1.3, h = L.lines.length * lh + pad * 1.6;
+  const x = o.x ?? (W - w) / 2, y = o.y ?? 48;
+  const inA = easeBack(t / .55), alpha = Math.min(clamp(t / .25), clamp((dur - t) / .45));
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  const cx = x + w / 2, cy = y + h / 2;
+  ctx.translate(cx, cy);
+  ctx.rotate((o.rot ?? -.006) * (1 + (1 - inA)));
+  ctx.scale(.88 + .12 * inA, .88 + .12 * inA);
+  ctx.translate(-cx, -cy);
+  // sombra dura
+  ctx.save(); ctx.translate(8, 10);
+  ctx.beginPath(); const sp = panelPts(x, y, w, h, o.seed || 3);
+  ctx.moveTo(sp[0][0], sp[0][1]); for (const p of sp) ctx.lineTo(p[0], p[1]);
+  ctx.closePath(); ctx.fillStyle = 'rgba(27,16,51,.45)'; ctx.fill();
+  ctx.restore();
+  facet(panelPts(x, y, w, h, o.seed || 3), o.paper || [44, 92, 92], { lw: 6, contrast: 4, seed: o.seed || 3, ilw: 1.4, iink: 'rgba(27,16,51,.16)' });
+  words(L, font, size, cx, y + pad * .8, t - .35, { wps: o.wps, hlColor: o.hlColor });
+  ctx.restore();
+  DIM = dimSave;
+}
+
+/* ================================================================
+   Personajes y objetos
+   ================================================================ */
+const C = {
+  boa: [150, 72, 40], boaBand: [78, 85, 52], beast: [30, 96, 56], spot: [18, 70, 26],
+  skin: [28, 80, 80], gold: [45, 98, 58], paper: [44, 80, 93], pencil: [22, 85, 50],
+  hatFill: [24, 62, 50], ele: [212, 38, 66], eleEar: [338, 55, 76],
+};
+
+function drawStars(alpha, t) {
+  if (alpha <= 0) return;
+  const d = DIM; DIM = 0;
+  ctx.save(); ctx.globalAlpha = alpha;
+  for (let i = 0; i < 70; i++) {
+    const x = hash(i * 3.1) * W, y = hash(i * 7.7) * H * .62, s = (3 + hash(i) * 7) * (.6 + .4 * Math.sin(t * 2 + i));
+    ctx.beginPath(); ctx.moveTo(x, y - s * 2); ctx.lineTo(x + s * .6, y); ctx.lineTo(x, y + s * 2); ctx.lineTo(x - s * .6, y); ctx.closePath();
+    ctx.fillStyle = i % 5 ? '#fff6c8' : '#ffd23f'; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x - s * 1.6, y); ctx.lineTo(x, y + s * .5); ctx.lineTo(x + s * 1.6, y); ctx.lineTo(x, y - s * .5); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore(); DIM = d;
+}
+function drawSun(x, y, r, t) {
+  const d = DIM; DIM = 0;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(t * .3);
+  for (let i = 0; i < 12; i++) {
+    const a = i / 12 * Math.PI * 2, b = a + .14, c = a - .14, R = r * (i % 2 ? 1.55 : 1.8);
+    ctx.strokeStyle = INK;
+    tri([Math.cos(b) * r * .9, Math.sin(b) * r * .9], [Math.cos(a) * R, Math.sin(a) * R], [Math.cos(c) * r * .9, Math.sin(c) * r * .9], hsl([38 + i % 2 * 10, 100, 58]), 4);
+  }
+  ctx.restore();
+  facet(blob(x, y, r, r, 12, 4, .04, t * .3), [48, 100, 60], { lw: 5, contrast: 8, seed: 4 });
+  DIM = d;
+}
+function drawMoon(x, y, r) {
+  const d = DIM; DIM = 0;
+  facet(blob(x, y, r, r, 12, 8, .05), [52, 70, 86], { lw: 5, contrast: 6, seed: 8 });
+  facet(blob(x - r * .3, y - r * .2, r * .22, r * .2, 6, 2), [52, 40, 74], { lw: 3, simple: true });
+  facet(blob(x + r * .3, y + r * .3, r * .16, r * .15, 6, 3), [52, 40, 74], { lw: 3, simple: true });
+  DIM = d;
+}
+
+/* El niño / el principito. Pies en (x,y) */
+function drawKid(x, y, s, t, o = {}) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  if (o.flip) ctx.scale(-1, 1);
+  const coat = o.coat || [140, 70, 42], hair = o.hair || [48, 96, 58];
+  if (o.scarf) {
+    const sp = [];
+    for (let i = 0; i <= 9; i++) sp.push([6 + i * 16, -110 + Math.sin(t * 6 - i * .9) * i * 1.6 - i * 2]);
+    const r = ribbon(sp, k => 20 - k * 12);
+    strip(r.top, r.bot, [46, 98, 56], { rows: 1, lw: 4, seed: 5 });
+  }
+  facet(rectP(-18, -44, 13, 44), [232, 45, 32], { lw: 4, simple: true });
+  facet(rectP(5, -44, 13, 44), [232, 45, 32], { lw: 4, simple: true, seed: 3 });
+  facet([[-42, -30], [42, -30], [24, -114], [-24, -114]], coat, { lw: 5, seed: 3 });
+  if (o.wave !== undefined) {
+    const a = -1.0 + Math.sin(t * 6) * .4 * o.wave, sx = 22, sy = -100;
+    const ex = sx + Math.cos(a) * 55, ey = sy + Math.sin(a) * 55;
+    const r = ribbon([[sx, sy], [(sx + ex) / 2, (sy + ey) / 2], [ex, ey]], () => 15);
+    strip(r.top, r.bot, coat, { rows: 1, lw: 4 });
+    facet(blob(ex, ey, 10, 10, 6, 2), C.skin, { lw: 3, simple: true });
+  }
+  facet(blob(0, -144, 33, 33, 10, 7, .05), C.skin, { lw: 5, seed: 5, contrast: 6, iink: 'rgba(27,16,51,.28)' });
+  const hp = [];
+  for (let i = 0; i <= 10; i++) {
+    const a = Math.PI + i / 10 * Math.PI, r = i % 2 ? 50 : 36;
+    hp.push([Math.cos(a) * r, -150 + Math.sin(a) * r * .85]);
+  }
+  hp.push([24, -146], [-24, -146]);
+  facet(hp, hair, { lw: 5, seed: 6, contrast: 10 });
+  dot(-11, -140, 4.5, INK); dot(11, -140, 4.5, INK);
+  dot(-20, -128, 6, 'rgba(240,90,110,.55)'); dot(20, -128, 6, 'rgba(240,90,110,.55)');
+  ctx.beginPath(); ctx.arc(0, -128, 7, .2, Math.PI - .2); ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.stroke();
+  ctx.restore();
+}
+
+/* Persona mayor. Pies en (x,y) */
+function drawAdult(x, y, s, t, o) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  const sh = o.shrug || 0, bob = Math.sin(t * 2 + (o.ph || 0)) * 4, coat = o.coat;
+  facet(rectP(-36, -210, 28, 210), [240, 30, 24], { lw: 5, simple: true });
+  facet(rectP(8, -210, 28, 210), [240, 30, 24], { lw: 5, simple: true, seed: 4 });
+  facet(blob(-26, -6, 30, 12, 6, 1), [10, 40, 20], { lw: 4, simple: true });
+  facet(blob(26, -6, 30, 12, 6, 2), [10, 40, 20], { lw: 4, simple: true });
+  const body = o.dress
+    ? [[-92, -170], [92, -170], [52, -400 + bob], [-52, -400 + bob]]
+    : [[-62, -195], [62, -195], [66, -405 + bob], [-66, -405 + bob]];
+  facet(body, coat, { lw: 6, seed: o.seed || 2 });
+  if (o.dress) facet(blob(0, -390 + bob, 26, 8, 6, 3), [48, 98, 66], { lw: 3, simple: true });
+  else facet([[-16, -405 + bob], [16, -405 + bob], [0, -330 + bob]], [355, 80, 52], { lw: 4, simple: true });
+  for (const side of [-1, 1]) {
+    const sx = side * 60, sy = -385 + bob - sh * 18;
+    const ex = side * lerp(78, 118, sh), ey = lerp(-290, -330, sh);
+    const hx = side * lerp(72, 150, sh), hy = lerp(-200, -405, sh);
+    const r = ribbon([[sx, sy], [ex, ey], [hx, hy]], () => 30);
+    strip(r.top, r.bot, mixc(coat, [coat[0], coat[1], coat[2] - 8], .5), { rows: 1, lw: 5, seed: side + 4 });
+    facet(blob(hx, hy, 15, 15, 7, side + 9), C.skin, { lw: 4, simple: true });
+  }
+  const hy = -465 + bob - sh * 12;
+  facet(rectP(-18, -425 + bob - sh * 6, 36, 30), C.skin, { lw: 4, simple: true });
+  if (o.dress) facet(blob(0, hy - 72, 44, 38, 9, 5), o.hair, { lw: 5, seed: 7 });
+  facet(blob(0, hy, 54, 60, 11, o.seed || 3, .05), C.skin, { lw: 6, seed: 9, contrast: 6, iink: 'rgba(27,16,51,.28)' });
+  if (o.dress) facet([[-58, hy - 4], [-50, hy - 50], [0, hy - 66], [50, hy - 50], [58, hy - 4], [30, hy - 36], [-30, hy - 36]], o.hair, { lw: 5, seed: 8 });
+  const tilt = sh * 8;
+  ctx.strokeStyle = INK; ctx.lineWidth = 5; ctx.lineCap = 'round';
+  for (const side of [-1, 1]) {
+    dot(side * 20, hy - 6, 6, INK);
+    ctx.beginPath(); ctx.moveTo(side * 30, hy - 26 - tilt * (side > 0 ? 1.4 : .6)); ctx.lineTo(side * 10, hy - 22 - tilt * (side > 0 ? .4 : 1)); ctx.stroke();
+  }
+  if (o.stache) {
+    facet([[-34, hy + 24], [0, hy + 14], [34, hy + 24], [16, hy + 30], [0, hy + 24], [-16, hy + 30]], [25, 50, 25], { lw: 3, simple: true });
+  } else {
+    ctx.beginPath(); ctx.moveTo(-14, hy + 28); ctx.quadraticCurveTo(0, hy + 28 - sh * 10, 14, hy + 28); ctx.stroke();
+  }
+  if (o.tophat) {
+    facet(rectP(-46, hy - 160, 92, 112), [262, 45, 24], { lw: 5, seed: 3 });
+    facet(rectP(-46, hy - 76, 92, 18), [350, 85, 52], { lw: 4, simple: true });
+    facet(rectP(-76, hy - 58, 152, 16), [262, 45, 24], { lw: 5, simple: true });
+  }
+  ctx.lineCap = 'butt';
+  ctx.restore();
+}
+
+/* Pincel / lápiz de color. La punta en (x,y), el cuerpo hacia ang */
+function drawPencil(x, y, ang, col) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+  facet(rectP(50, -17, 290, 11), col, { lw: 0, simple: true, contrast: 3 });
+  ctx.strokeStyle = INK;
+  const bands = [[-17, -6, 12], [-6, 6, 0], [6, 17, -12]];
+  for (const [a, b, dl] of bands) {
+    for (let k = 0; k < 5; k++) {
+      const x0 = 50 + k * 58, x1 = x0 + 58;
+      tri([x0, a], [x1, a], [x1, b], hsl(col, dl + (hash(k + a) - .5) * 6), 1.6);
+      tri([x0, a], [x1, b], [x0, b], hsl(col, dl - 2 + (hash(k - a) - .5) * 6), 1.6);
+    }
+  }
+  facet(rectP(340, -17, 26, 34), [215, 18, 72], { lw: 4, simple: true });
+  facet(rectP(366, -17, 34, 34), [350, 80, 74], { lw: 4, simple: true });
+  facet([[0, 0], [52, -17], [52, 17]], [34, 70, 76], { lw: 4, simple: true });
+  facet([[0, 0], [17, -5.5], [17, 5.5]], col, { lw: 3, simple: true });
+  outline([[52, -17], [400, -17], [400, 17], [52, 17]], 5);
+  ctx.restore();
+}
+
+/* ---------- La boa ---------- */
+function drawBoa(spine, wfn, o = {}) {
+  const r = ribbon(spine, wfn);
+  const bandCol = o.bandCol || C.boaBand, body = o.col || C.boa;
+  strip(r.top, r.bot, body, { rows: 3, lw: 6, seed: 7, contrast: 12, colFn: i => (Math.floor(i / 3) % 3 === 1 ? bandCol : body) });
+  const n = spine.length, P = spine[n - 1], Q = spine[n - 3];
+  const ang = Math.atan2(P[1] - Q[1], P[0] - Q[0]);
+  const w = wfn(1);
+  ctx.save(); ctx.translate(P[0], P[1]); ctx.rotate(ang);
+  if (o.flipY) ctx.scale(1, -1);
+  const m = o.mouth || 0;
+  // mandíbula inferior
+  ctx.save(); ctx.rotate(m * .55);
+  facet([[-14, 0], [78, 2], [70, w * .45], [-14, w * .55]], mixc(body, bandCol, .4), { lw: 5, simple: true, seed: 3 });
+  ctx.restore();
+  if (m > .02) {
+    const a1 = -m * .6, a2 = m * .55;
+    ctx.fillStyle = hsl([350, 75, 35]);
+    ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(Math.cos(a1) * 80, Math.sin(a1) * 80); ctx.lineTo(Math.cos(a2) * 74, Math.sin(a2) * 74); ctx.closePath(); ctx.fill();
+  }
+  if (o.tongue) {
+    const L = 40 * o.tongue, wob = Math.sin(o.t * 30) * 4;
+    ctx.strokeStyle = hsl([350, 90, 55]); ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(80, 4); ctx.lineTo(80 + L, 4 + wob); ctx.lineTo(80 + L + 14, -6 + wob); ctx.moveTo(80 + L, 4 + wob); ctx.lineTo(80 + L + 14, 14 + wob); ctx.stroke();
+    ctx.lineCap = 'butt';
+  }
+  // cabeza superior
+  ctx.save(); ctx.rotate(-m * .6);
+  facet([[-18, w * .2], [-14, -w * .55], [30, -w * .7], [82, -w * .35], [100, -4], [70, 4], [-18, 4]], body, { lw: 6, seed: 11, contrast: 12 });
+  if (o.sleep) {
+    ctx.strokeStyle = INK; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(34, -w * .32, 10, .2, Math.PI - .2); ctx.stroke();
+  } else {
+    dot(34, -w * .35, 11, hsl([52, 100, 58])); ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.fillStyle = INK; ctx.fillRect(32, -w * .35 - 9, 4, 18);
+  }
+  ctx.restore();
+  ctx.restore();
+  return { P, ang };
+}
+
+/* ---------- La fiera ---------- */
+function drawBeast(x, y, s, t, rot = 0) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(s, s);
+  const sp = [];
+  for (let i = 0; i <= 6; i++) sp.push([80 + i * 14, -70 - i * 13 + Math.sin(t * 4 + i * .6) * i * 2]);
+  const tr = ribbon(sp, k => 16 - k * 6);
+  strip(tr.top, tr.bot, C.beast, { rows: 1, lw: 4 });
+  facet(rectP(46, -52, 20, 52), mixc(C.beast, [24, 90, 44], .6), { lw: 4, simple: true });
+  facet(rectP(22, -52, 20, 52), mixc(C.beast, [24, 90, 44], .6), { lw: 4, simple: true, seed: 2 });
+  facet(blob(18, -76, 88, 40, 10, 5, .06), C.beast, { lw: 5, seed: 5 });
+  for (const [sx, sy, sr] of [[0, -90, 9], [40, -82, 8], [-30, -70, 7], [60, -96, 6], [18, -62, 6]]) {
+    facet(blob(sx, sy, sr, sr * .8, 5, sx + 3, .2), C.spot, { lw: 2, simple: true });
+  }
+  facet(rectP(-62, -52, 20, 52), C.beast, { lw: 4, simple: true, seed: 3 });
+  facet(rectP(-38, -52, 20, 52), C.beast, { lw: 4, simple: true, seed: 4 });
+  facet([[-104, -118], [-96, -150], [-80, -122]], C.beast, { lw: 4, simple: true });
+  facet([[-76, -122], [-62, -150], [-56, -116]], C.beast, { lw: 4, simple: true, seed: 2 });
+  facet(blob(-82, -100, 40, 33, 9, 6, .06), C.beast, { lw: 5, seed: 6 });
+  facet(blob(-112, -90, 18, 13, 6, 7), [40, 92, 82], { lw: 4, simple: true });
+  dot(-128, -94, 5, INK);
+  dot(-96, -108, 8, '#fff'); dot(-98, -108, 4.5, INK);
+  ctx.restore();
+}
+
+/* ---------- Dibujo número 1 (sombrero / boa) ---------- */
+const PX = 460, PB = 840, HAT_N = 72;
+const hatH = u => 30 * Math.pow(Math.sin(Math.PI * u), .5) + 230 * Math.exp(-Math.pow((u - .5) / .22, 2));
+const HAT = (() => {
+  const top = [], bot = [];
+  for (let i = 0; i <= HAT_N; i++) { const u = i / HAT_N; top.push([PX + u * 1000, PB - hatH(u)]); bot.push([PX + u * 1000, PB]); }
+  const path = [...top, ...bot.slice().reverse()];
+  const ftop = top.filter((_, i) => i % 3 === 0), fbot = bot.filter((_, i) => i % 3 === 0);
+  const cum = [0];
+  for (let i = 1; i < path.length; i++) cum.push(cum[i - 1] + Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]));
+  return { top, bot, ftop, fbot, path, cum, len: cum[cum.length - 1] };
+})();
+const E = (u, h) => [PX + u * 1000, PB - h];
+
+function drawPartial(path, cum, f, col, lw) {
+  const target = f * cum[cum.length - 1];
+  ctx.beginPath(); ctx.moveTo(path[0][0], path[0][1]);
+  let tip = path[0];
+  for (let i = 1; i < path.length; i++) {
+    if (cum[i] <= target) { ctx.lineTo(path[i][0], path[i][1]); tip = path[i]; }
+    else {
+      const k = (target - cum[i - 1]) / (cum[i] - cum[i - 1]);
+      tip = [lerp(path[i - 1][0], path[i][0], k), lerp(path[i - 1][1], path[i][1], k)];
+      ctx.lineTo(tip[0], tip[1]); break;
+    }
+  }
+  ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.lineCap = 'butt';
+  return tip;
+}
+function drawHatFill(col, o = {}) {
+  strip(HAT.ftop, HAT.fbot, col, {
+    rows: 3, lw: o.lw ?? 7, seed: 12, contrast: 10,
+    colFn: o.band ? (i => (Math.floor(i / 2) % 2 && i > 0 && i < HAT_N / 3 - 1 ? mixc(col, o.band, o.bandAmt ?? 1) : col)) : null,
+  });
+}
+const PAPER = panelPts(380, 400, 1160, 520, 21);
+function drawPaper() {
+  ctx.save(); ctx.translate(10, 12);
+  ctx.beginPath(); ctx.moveTo(PAPER[0][0], PAPER[0][1]); for (const p of PAPER) ctx.lineTo(p[0], p[1]); ctx.closePath();
+  ctx.fillStyle = 'rgba(27,16,51,.4)'; ctx.fill(); ctx.restore();
+  facet(PAPER, C.paper, { lw: 7, contrast: 3, seed: 21, ilw: 1.2, iink: 'rgba(27,16,51,.16)' });
+}
+function caption(text, t, y = 892) {
+  if (t <= 0) return;
+  const a = easeBack(t / .5);
+  ctx.save(); ctx.globalAlpha = clamp(t / .3);
+  ctx.translate(960, y); ctx.scale(a, a); ctx.rotate(-.02);
+  ctx.font = `900 40px ${FONT_DISP}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = hsl(C.pencil, -12); ctx.fillText(text, 0, 0);
+  ctx.restore();
+}
+
+/* ---------- El elefante (dentro de la boa) ---------- */
+const ELE_PARTS = [
+  { kind: 'leg', p: rectP(...E(.415, 72), 34, 72) },
+  { kind: 'leg', p: rectP(...E(.465, 72), 34, 72) },
+  { kind: 'leg', p: rectP(...E(.575, 72), 34, 72) },
+  { kind: 'leg', p: rectP(...E(.625, 72), 34, 72) },
+  { kind: 'tail', spine: [E(.668, 112), E(.684, 92), E(.692, 66)] },
+  { kind: 'body', p: blob(...E(.53, 108), 142, 72, 12, 31, .04) },
+  { kind: 'trunk', spine: [E(.335, 104), E(.315, 80), E(.302, 52), E(.296, 26), E(.305, 12)] },
+  { kind: 'head', p: blob(...E(.365, 118), 52, 50, 10, 33, .04) },
+  { kind: 'ear', p: blob(...E(.405, 116), 36, 46, 8, 34, .06) },
+  { kind: 'eye', c: E(.348, 130) },
+];
+function drawElephant(reveal, alpha = 1) {
+  ctx.save(); ctx.globalAlpha *= alpha;
+  ELE_PARTS.forEach((part, i) => {
+    const a = reveal === undefined ? 1 : clamp((reveal - i / ELE_PARTS.length) * ELE_PARTS.length);
+    if (a <= 0) return;
+    const pts = part.p;
+    let cx = 0, cy = 0;
+    if (pts) { for (const p of pts) { cx += p[0]; cy += p[1]; } cx /= pts.length; cy /= pts.length; }
+    else if (part.spine) { cx = part.spine[1][0]; cy = part.spine[1][1]; }
+    else { cx = part.c[0]; cy = part.c[1]; }
+    const s = easeBack(a);
+    ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s); ctx.translate(-cx, -cy);
+    if (part.kind === 'trunk' || part.kind === 'tail') {
+      const r = ribbon(part.spine, k => part.kind === 'trunk' ? 28 - k * 14 : 9 - k * 4);
+      strip(r.top, r.bot, C.ele, { rows: part.kind === 'trunk' ? 2 : 1, lw: 5, seed: i });
+    } else if (part.kind === 'eye') {
+      dot(cx, cy, 6, INK);
+      facet([[cx - 24, cy - 32], [cx - 12, cy - 30], [cx - 30, cy - 12]], [45, 30, 96], { lw: 0 });
+    } else {
+      facet(pts, part.kind === 'ear' ? C.eleEar : C.ele, { lw: 5, seed: i + 30, contrast: 10, simple: part.kind === 'leg' });
+    }
+    ctx.restore();
+  });
+  ctx.restore();
+}
+
+/* ================================================================
+   Escenarios
+   ================================================================ */
+const TREES = [
+  { x: 150, top: 300, w: 70, s: 1 }, { x: 520, top: 420, w: 54, s: 2 },
+  { x: 1480, top: 380, w: 60, s: 3 }, { x: 1820, top: 260, w: 76, s: 4 },
+];
+const DAY_TOP = [204, 88, 56], DAY_LOW = [176, 78, 70], NIGHT_TOP = [248, 60, 18], NIGHT_LOW = [272, 52, 32];
+
+function drawJungle(t, night, actors, skyExtras) {
+  drawBg((x, y) => mixc(mixc(DAY_TOP, DAY_LOW, clamp(y / 820)), mixc(NIGHT_TOP, NIGHT_LOW, clamp(y / 820)), night));
+  DIM = night * .55;
+  if (skyExtras) skyExtras();
+  // colinas lejanas
+  const hillT = [], hillB = [];
+  for (let i = 0; i <= 24; i++) {
+    const x = i / 24 * W;
+    hillT.push([x, 640 - Math.sin(i * .7) * 50 - Math.sin(i * 1.9) * 24 - hash(i) * 20]);
+    hillB.push([x, 880]);
+  }
+  strip(hillT, hillB, [166, 55, 32], { rows: 2, lw: 4, seed: 4, contrast: 8 });
+  // árboles
+  for (const tr of TREES) {
+    const sway = Math.sin(t * .8 + tr.s) * 8;
+    const sp = [];
+    for (let k = 0; k <= 6; k++) sp.push([tr.x + Math.sin(k * 1.3 + tr.s) * 8 + sway * k / 6, lerp(900, tr.top + 60, k / 6)]);
+    const r = ribbon(sp, k => tr.w * (1 - k * .45));
+    strip(r.top, r.bot, [22, 58, 32], { rows: 2, lw: 5, seed: tr.s });
+    const cx = tr.x + sway;
+    facet(blob(cx - 110, tr.top + 40, 140, 100, 9, tr.s * 3, .14), [132, 70, 34], { lw: 5, seed: tr.s * 3 });
+    facet(blob(cx + 110, tr.top + 30, 150, 105, 9, tr.s * 5, .14), [120, 72, 38], { lw: 5, seed: tr.s * 5 });
+    facet(blob(cx, tr.top - 40, 160, 110, 10, tr.s * 7, .12), [104, 74, 44], { lw: 5, seed: tr.s * 7 });
+  }
+  // lianas
+  for (let v = 0; v < 6; v++) {
+    const x0 = 120 + v * 330 + hash(v) * 80, len = 220 + hash(v + 9) * 180, sp = [];
+    for (let k = 0; k <= 8; k++) sp.push([x0 + Math.sin(t * 1.2 + v + k * .4) * k * 3, -10 + k / 8 * len]);
+    const r = ribbon(sp, () => 10);
+    strip(r.top, r.bot, [96, 70, 42], { rows: 1, lw: 3, seed: v });
+    const e = sp[8];
+    facet([[e[0], e[1] - 6], [e[0] + 24, e[1] + 10], [e[0], e[1] + 30], [e[0] - 22, e[1] + 10]], [90, 80, 48], { lw: 3, simple: true });
+  }
+  // suelo
+  const gT = [], gB = [];
+  for (let i = 0; i <= 20; i++) { const x = i / 20 * W; gT.push([x, 850 + Math.sin(i * 1.3) * 12 + hash(i + 40) * 14]); gB.push([x, H + 10]); }
+  strip(gT, gB, [112, 62, 38], { rows: 3, lw: 5, seed: 9, contrast: 12 });
+  // flores
+  for (let f = 0; f < 9; f++) {
+    const x = 60 + f * 220 + hash(f * 3) * 90, y = 930 + hash(f * 5) * 110;
+    const col = f % 3 === 0 ? [330, 90, 60] : f % 3 === 1 ? [28, 100, 58] : [52, 100, 60];
+    const pts = [];
+    for (let k = 0; k < 10; k++) { const a = k / 10 * Math.PI * 2 + t * .3, r = k % 2 ? 12 : 26; pts.push([x + Math.cos(a) * r, y + Math.sin(a) * r]); }
+    facet(pts, col, { lw: 3, simple: true, seed: f });
+    dot(x, y, 6, hsl([48, 100, 70]));
+  }
+  if (actors) actors();
+  // hojas en primer plano
+  const leaf = (x, y, len, ang, col, seed) => {
+    const pts = [], n = 7;
+    for (let k = 0; k <= n; k++) { const u = k / n; pts.push([u * len, -Math.sin(Math.PI * u) * len * .22]); }
+    for (let k = n - 1; k > 0; k--) { const u = k / n; pts.push([u * len, Math.sin(Math.PI * u) * len * .22]); }
+    ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+    facet(pts, col, { lw: 5, seed, contrast: 12 });
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(len * .95, 0); ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.restore();
+  };
+  const sw = Math.sin(t * 1.1) * .05;
+  leaf(-40, 1100, 380, -1.0 + sw, [140, 78, 30], 1);
+  leaf(-60, 1000, 320, -.45 - sw, [124, 80, 36], 2);
+  leaf(1960, 1110, 400, -2.15 - sw, [140, 78, 30], 3);
+  leaf(1980, 990, 300, -2.7 + sw, [104, 76, 40], 4);
+  DIM = 0;
+}
+
+function drawNightSky(t) {
+  drawBg((x, y) => mixc([250, 62, 16], [282, 58, 34], clamp(y / H)), { vari: 9 });
+  drawStars(1, t);
+}
+function drawPlanet(cx, cy, r, t) {
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(t * .12);
+  facet(blob(0, 0, r, r, 16, 41, .05), [14, 82, 60], { lw: 7, seed: 41, contrast: 12 });
+  for (let k = 0; k < 3; k++) {
+    const a = k * 2.1 + .6;
+    facet(blob(Math.cos(a) * r * .5, Math.sin(a) * r * .5, r * .16, r * .12, 6, k + 5), [10, 70, 46], { lw: 3, simple: true });
+  }
+  for (const a of [-2.3, -.9]) {
+    ctx.save(); ctx.rotate(a + Math.PI / 2);
+    facet([[-22, -r + 6], [22, -r + 6], [12, -r - 30], [-12, -r - 30]], [262, 40, 40], { lw: 4, simple: true });
+    ctx.restore();
+  }
+  ctx.save(); ctx.rotate(.5);
+  ctx.translate(0, -r + 4);
+  facet([[-3, 0], [3, 0], [2, -40], [-2, -40]], [130, 70, 38], { lw: 3, simple: true });
+  const petals = [];
+  for (let k = 0; k < 10; k++) { const a = k / 10 * Math.PI * 2, rr = k % 2 ? 10 : 20; petals.push([Math.cos(a) * rr, -52 + Math.sin(a) * rr]); }
+  facet(petals, [350, 88, 56], { lw: 3, simple: true });
+  ctx.restore();
+  ctx.restore();
+}
+
+/* ================================================================
+   Escenas
+   ================================================================ */
+const SCENES = [];
+const scene = (dur, draw) => SCENES.push({ dur, draw });
+
+// 0 · Portada
+scene(6.5, t => {
+  drawNightSky(t);
+  drawPlanet(960, 930, 170, t);
+  drawKid(960, 762, 1.15, t, { scarf: true, wave: 1 });
+  const title = 'El Principito';
+  ctx.font = `900 150px ${FONT_DISP}`; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  const tw = ctx.measureText(title).width;
+  let x = 960 - tw / 2;
+  for (let i = 0; i < title.length; i++) {
+    const ch = title[i], w = ctx.measureText(ch).width;
+    const a = clamp((t - .15 - i * .06) / .5);
+    if (a > 0) {
+      ctx.save();
+      ctx.globalAlpha = clamp(a * 3);
+      ctx.translate(x + w / 2, 330 - (1 - easeBack(a)) * 120 + Math.sin(t * 2 + i * .5) * 4);
+      ctx.rotate((hash(i) - .5) * .12);
+      ctx.lineJoin = 'round'; ctx.lineWidth = 16; ctx.strokeStyle = INK; ctx.strokeText(ch, -w / 2, 0);
+      ctx.fillStyle = hsl(i % 2 ? [45, 100, 60] : [36, 100, 58]); ctx.fillText(ch, -w / 2, 0);
+      ctx.restore();
+    }
+    x += w;
+  }
+  const sa = clamp((t - 1.5) / .6);
+  ctx.save(); ctx.globalAlpha = sa;
+  ctx.font = `800 40px ${FONT_BODY}`; ctx.textAlign = 'center'; ctx.fillStyle = '#fbf1d6';
+  ctx.fillText('Antoine de Saint-Exupéry', 960, 410 + (1 - sa) * 12);
+  ctx.restore();
+  if (t > 2.1) {
+    const b = easeBack((t - 2.1) / .5);
+    ctx.save(); ctx.translate(960, 480); ctx.scale(b, b); ctx.rotate(-.03);
+    facet(panelPts(-130, -34, 260, 68, 7), [330, 85, 55], { lw: 5, contrast: 6, seed: 7 });
+    ctx.font = `900 38px ${FONT_DISP}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff';
+    ctx.fillText('Capítulo I', 0, 2);
+    ctx.restore();
+  }
+});
+
+// 1 · El libro «Historias vividas»
+scene(9, t => {
+  drawBg((x, y) => y > 840 ? [24, 66, 42] : mixc([186, 72, 46], [214, 62, 36], y / 840), { vari: 8 });
+  const op = ease((t - 1.8) / 1.6), z = ease((t - 6.6) / 2.4);
+  ctx.save();
+  const fx = 1150, fy = 520, Z = 1 + z * 2.4;
+  ctx.translate(lerp(fx, 960, z), lerp(fy, 600, z)); ctx.scale(Z, Z); ctx.translate(-fx, -fy);
+  const sx = -190 * (1 - op), X = 960 + sx;
+  ctx.save(); ctx.globalAlpha = .45; ctx.fillStyle = INK;
+  ctx.beginPath(); ctx.ellipse(X + 190 * (1 - op), 838, 220 + 200 * op, 26, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  facet(rectP(X, 350, 380, 470), [352, 78, 46], { lw: 6, seed: 2 });
+  facet(rectP(X + 4, 362, 360, 446), C.paper, { lw: 5, contrast: 3, seed: 3, ilw: 1, iink: 'rgba(27,16,51,.16)' });
+  // ilustración en la página derecha
+  if (op > .2) {
+    const fr = rectP(X + 34, 394, 300, 250);
+    facet(fr, [200, 85, 62], { lw: 4, contrast: 6, seed: 5 });
+    const hT = [], hB = [];
+    for (let i = 0; i <= 6; i++) { hT.push([X + 34 + i * 50, 560 - Math.sin(i * 1.4) * 22]); hB.push([X + 34 + i * 50, 644]); }
+    strip(hT, hB, [118, 64, 40], { rows: 1, lw: 4, seed: 8 });
+    facet(blob(X + 90, 470, 44, 38, 7, 3), [110, 72, 40], { lw: 4 });
+    facet(blob(X + 270, 460, 50, 42, 7, 4), [130, 70, 36], { lw: 4 });
+    const sp = [];
+    for (let i = 0; i <= 14; i++) sp.push([X + 60 + i * 17, 600 + Math.sin(i * .9 + t * 3) * 10]);
+    const r = ribbon(sp, k => 6 + 12 * Math.sin(Math.PI * Math.min(k, .95)));
+    strip(r.top, r.bot, C.boa, { rows: 1, lw: 3, seed: 2, colFn: i => (Math.floor(i / 2) % 2 ? C.boaBand : C.boa) });
+    drawBeast(X + 300, 610, .3, t);
+    ctx.fillStyle = 'rgba(27,16,51,.22)';
+    for (let l = 0; l < 6; l++) ctx.fillRect(X + 34, 672 + l * 22, 300 - (l === 5 ? 120 : hash(l) * 40), 8);
+  }
+  // tapa que gira sobre el lomo
+  const c = Math.cos(Math.PI * op), sn = Math.sin(Math.PI * op), far = X + 380 * c;
+  const quad = [[X, 350], [far, 350 - sn * 40], [far, 820 + sn * 40], [X, 820]];
+  if (c >= 0) {
+    facet(quad, [352, 82, 50], { lw: 6, seed: 9 });
+    if (c > .15) {
+      ctx.save(); ctx.translate(X, 585); ctx.scale(c, 1 + sn * .05);
+      facet(blob(190, -100, 46, 46, 8, 6), [96, 76, 44], { lw: 4 });
+      ctx.font = `900 50px ${FONT_DISP}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round'; ctx.lineWidth = 9; ctx.strokeStyle = INK;
+      ctx.strokeText('Historias', 190, 10); ctx.strokeText('vividas', 190, 70);
+      ctx.fillStyle = hsl(C.gold); ctx.fillText('Historias', 190, 10); ctx.fillText('vividas', 190, 70);
+      ctx.restore();
+    }
+  } else {
+    facet(quad, [352, 70, 40], { lw: 6, seed: 9 });
+    const inset = [[X - 4, 362], [lerp(X, far, .95), 362 - sn * 36], [lerp(X, far, .95), 808 + sn * 36], [X - 4, 808]];
+    facet(inset, C.paper, { lw: 5, contrast: 3, seed: 10, ilw: 1, iink: 'rgba(27,16,51,.16)' });
+    if (c < -.8) {
+      ctx.fillStyle = 'rgba(27,16,51,.22)';
+      ctx.fillRect(X - 330, 400, 200, 14);
+      for (let l = 0; l < 12; l++) ctx.fillRect(X - 330, 450 + l * 26, 290 - (l % 4 === 3 ? 110 : hash(l + 3) * 40), 8);
+    }
+  }
+  ctx.restore();
+  narr('Cuando tenía seis años vi una vez una imagen magnífica en un libro sobre la Selva Virgen que se llamaba *«Historias vividas».*', t - .3, 8.3);
+});
+
+// 2 · La boa se traga a la fiera
+scene(14.5, t => {
+  const enter = easeOut(t / 3.6);
+  const lunge = ease((t - 4) / .9) - ease((t - 7) / 1.6);
+  const mouth = sstep(3.7, 4.4, t) - sstep(6.2, 6.8, t);
+  const pull = easeIn((t - 4.5) / 1.5);
+  const bulgePos = lerp(.96, .55, ease((t - 6.6) / 5.5)), bulgeSize = 64 * sstep(6.3, 7.2, t);
+  const wfn = s => (16 + 40 * sstep(0, .4, s)) * (1 - .15 * sstep(.9, 1, s)) + bulgeSize * Math.exp(-Math.pow((s - bulgePos) / .07, 2));
+  const spine = [];
+  for (let i = 0; i <= 64; i++) {
+    const s = i / 64, hl = Math.pow(clamp((s - .7) / .3), 2);
+    spine.push([
+      260 + s * 1040 - (1 - enter) * 1500 + hl * 110 * lunge,
+      800 + Math.sin(s * 9 - t * 3) * 34 * (1 - .8 * sstep(6, 8, t)) - hl * 170 * lunge,
+    ]);
+  }
+  drawJungle(t, 0, () => {
+    const scare = sstep(3.4, 3.8, t) * (1 - sstep(4.4, 4.6, t));
+    const head = drawBoa(spine, wfn, { mouth, tongue: t < 3.6 && Math.sin(t * 7) > .2 ? 1 : 0, t });
+    if (pull < 1) {
+      const mx = head.P[0] + Math.cos(head.ang) * 70, my = head.P[1] + Math.sin(head.ang) * 70;
+      const bx = lerp(1610, mx, pull), by = lerp(880 - scare * 40, my + 40 * (1 - pull), pull);
+      drawBeast(bx, by, lerp(1.25, .12, pull), t, pull * -1.4);
+      drawBoa(spine, wfn, { mouth, t });
+    }
+  }, () => drawSun(250, 330, 70, t));
+  narr('Mostraba una *serpiente boa* que se tragaba a una *fiera.* Esta es la copia del dibujo.', t - .5, 5.8);
+  narr('En el libro se decía: «Las serpientes boas tragan a su presa entera, *sin masticarla.»*', t - 6.6, 7.6, { seed: 5 });
+});
+
+// 3 · Seis meses de digestión
+scene(12.5, t => {
+  const cyc = 1.8, k = Math.min(t / cyc, 5.999), f = k - Math.floor(k);
+  const day = .5 + .5 * Math.cos(2 * Math.PI * (f - .25)), night = 1 - day;
+  const month = Math.floor(k) + 1;
+  const wfn = s => (16 + 40 * sstep(0, .4, s)) * (1 - .15 * sstep(.9, 1, s)) + (62 + Math.sin(t * 2) * 5) * Math.exp(-Math.pow((s - .55) / .08, 2));
+  const spine = [];
+  for (let i = 0; i <= 64; i++) { const s = i / 64; spine.push([330 + s * 1000, 820 + Math.sin(s * 7 + .6) * 30]); }
+  drawJungle(t * .4, night, () => {
+    const head = drawBoa(spine, wfn, { sleep: true, t });
+    ctx.save();
+    for (let z = 0; z < 3; z++) {
+      const p = ((t * .6 + z / 3) % 1);
+      ctx.globalAlpha = Math.sin(Math.PI * p);
+      ctx.font = `900 ${40 + z * 14}px ${FONT_DISP}`; ctx.textAlign = 'center';
+      ctx.lineWidth = 8; ctx.strokeStyle = INK; ctx.lineJoin = 'round';
+      const zx = head.P[0] + 60 + p * 90 + Math.sin(p * 6) * 14, zy = head.P[1] - 70 - p * 200;
+      ctx.strokeText('Z', zx, zy); ctx.fillStyle = '#fbf1d6'; ctx.fillText('Z', zx, zy);
+    }
+    ctx.restore();
+  }, () => {
+    drawStars(night, t);
+    const a = f < .5 ? f * 2 : (f - .5) * 2;
+    const x = lerp(-120, W + 120, a), y = 640 - Math.sin(Math.PI * a) * 380;
+    if (f < .5) drawSun(x, y, 66, t); else drawMoon(x, y, 54);
+  });
+  // contador de meses
+  const d = DIM; DIM = 0;
+  const cx0 = 960 - 5 * 46;
+  ctx.save();
+  ctx.font = `900 40px ${FONT_DISP}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round'; ctx.lineWidth = 9; ctx.strokeStyle = INK;
+  const label = `mes ${month} de 6`;
+  ctx.strokeText(label, 960, 300); ctx.fillStyle = '#fbf1d6'; ctx.fillText(label, 960, 300);
+  for (let m = 0; m < 6; m++) {
+    const on = m < month, pop = on ? easeBack((k - m) / .4) : 1;
+    ctx.save(); ctx.translate(cx0 + m * 92, 360); ctx.scale(pop, pop);
+    facet(blob(0, 0, 24, 24, 6, m + 2, .05, -Math.PI / 2), on ? [45, 100, 58] : [255, 30, 40], { lw: 5, simple: true, seed: m });
+    ctx.restore();
+  }
+  ctx.restore();
+  DIM = d;
+  narr('«Después ya no pueden moverse y duermen durante los *seis meses* que dura su *digestión.»*', t - .4, 11.6, { seed: 7 });
+});
+
+// 4 · El primer dibujo
+scene(13.5, t => {
+  drawBg((x, y) => mixc([26, 74, 46], [16, 66, 36], clamp((x + y) / (W + H))), { vari: 11 });
+  drawPaper();
+  const f = ease((t - 1.4) / 5.6);
+  if (t > 7) { ctx.save(); ctx.globalAlpha = sstep(7, 8, t); drawHatFill(C.hatFill); ctx.restore(); }
+  const tip = f > 0 ? drawPartial(HAT.path, HAT.cum, f, hsl(C.pencil, -14), 9) : HAT.path[0];
+  caption('Dibujo n.º 1', t - 8.4);
+  let px, py;
+  if (t < 1.4) { const a = ease(t / 1.4); px = lerp(1900, tip[0], a); py = lerp(1100, tip[1], a); }
+  else if (t < 7.1) { px = tip[0]; py = tip[1]; }
+  else { const a = ease((t - 7.1) / 1.2); px = lerp(tip[0], 1980, a); py = lerp(tip[1], 1150, a); }
+  drawPencil(px, py + Math.sin(t * 24) * 2, -.78 + Math.sin(t * 9) * .04, C.pencil);
+  narr('Entonces reflexioné mucho sobre las aventuras de la jungla y, a mi vez, conseguí trazar con un lápiz de color *mi primer dibujo.*', t - .3, 8.1);
+  narr('Mi *dibujo número 1.* Era así:', t - 8.7, 4.6, { w: 900, seed: 9 });
+});
+
+// 5 · Las personas mayores
+scene(13.5, t => {
+  drawBg((x, y) => y > 900 ? [26, 62, 44] : mixc([282, 58, 58], [308, 56, 46], y / 900), { vari: 8 });
+  // marco de ventana con noche
+  facet(rectP(840, 300, 240, 300), [244, 60, 26], { lw: 6, seed: 4, contrast: 6 });
+  facet(blob(1010, 360, 26, 26, 8, 3), [52, 70, 86], { lw: 4 });
+  facet(rectP(950, 300, 14, 300), [30, 60, 40], { lw: 4, simple: true });
+  facet(rectP(840, 440, 240, 14), [30, 60, 40], { lw: 4, simple: true });
+  // caballete
+  for (const [x0, x1] of [[420, 340], [620, 700]]) {
+    const r = ribbon([[x0, 400], [x1, 960]], () => 20);
+    strip(r.top, r.bot, [26, 60, 38], { rows: 1, lw: 5 });
+  }
+  ctx.save(); ctx.translate(520, 560); ctx.rotate(-.03); ctx.scale(.3, .3); ctx.translate(-960, -660);
+  drawPaper(); drawHatFill(C.hatFill);
+  ctx.restore();
+  facet(rectP(330, 720, 380, 22), [26, 60, 38], { lw: 5, simple: true });
+  const shrug = sstep(7.6, 8.2, t) * (1 - sstep(12, 12.6, t));
+  drawKid(250, 960, 1.25, t, { coat: [196, 80, 44], hair: [42, 98, 56], wave: t > 1 && t < 6 ? 1 : undefined });
+  drawAdult(1250, 970, 1, t, { coat: [214, 72, 42], stache: true, tophat: true, shrug, seed: 2 });
+  drawAdult(1560, 970, .94, t, { coat: [352, 80, 52], dress: true, hair: [30, 60, 30], shrug: shrug * .8, ph: 1.4, seed: 4 });
+  narr('Mostré mi *obra maestra* a las personas mayores y les pregunté si mi dibujo les daba *miedo.*', t - .3, 6.8);
+  narr('Me respondieron:', t - 7.1, 6.2, { w: 520, x: 120, seed: 11 });
+  // bocadillo
+  const bt = t - 7.6;
+  if (bt > 0 && bt < 5.6) {
+    const a = easeBack(bt / .45), al = clamp((5.6 - bt) / .4);
+    ctx.save(); ctx.globalAlpha = al;
+    ctx.translate(1340, 210); ctx.scale(a, a); ctx.translate(-1340, -210);
+    const bp = blob(1340, 210, 380, 120, 14, 17, .05);
+    facet(bp, [0, 0, 100], { lw: 7, contrast: 4, seed: 17, ilw: 1.2, iink: 'rgba(27,16,51,.16)' });
+    ctx.fillStyle = hsl([0, 0, 97]);
+    ctx.beginPath(); ctx.moveTo(1230, 300); ctx.lineTo(1262, 380); ctx.lineTo(1300, 318); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(1230, 312); ctx.lineTo(1262, 380); ctx.lineTo(1302, 324);
+    ctx.lineWidth = 7; ctx.strokeStyle = INK; ctx.lineJoin = 'round'; ctx.stroke();
+    const font = `900 52px ${FONT_DISP}`;
+    const L = layout('¿Por qué habría de dar miedo un *sombrero?*', font, 640);
+    words(L, font, 52, 1340, 210 - L.lines.length * 52 * 1.2 / 2 - 6, bt - .2, { wps: 4, lh: 1.2, hlColor: '#d6246f' });
+    ctx.restore();
+  }
+});
+
+// 6 · No era un sombrero
+scene(11.5, t => {
+  drawBg((x, y) => mixc([26, 74, 46], [16, 66, 36], clamp((x + y) / (W + H))), { vari: 11 });
+  drawPaper();
+  const g = ease((t - 3.4) / 1.6);
+  drawHatFill(mixc(C.hatFill, C.boa, g), { band: C.boaBand, bandAmt: g });
+  if (t > 6.6) drawElephant(undefined, .16 + .1 * Math.sin((t - 6.6) * 4));
+  if (g > .4) {
+    const e = easeBack((g - .4) / .6);
+    const ex = PX + 44, ey = PB - 22;
+    ctx.save(); ctx.translate(ex, ey); ctx.scale(e, e);
+    dot(0, 0, 13, hsl([52, 100, 58])); ctx.lineWidth = 4; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.fillStyle = INK; ctx.fillRect(-2.5, -10, 5, 20);
+    ctx.restore();
+    if (Math.sin(t * 5) > .3) {
+      ctx.strokeStyle = hsl([350, 90, 55]); ctx.lineWidth = 6; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(PX + 2, PB - 4); ctx.lineTo(PX - 40, PB - 4); ctx.lineTo(PX - 56, PB - 16);
+      ctx.moveTo(PX - 40, PB - 4); ctx.lineTo(PX - 56, PB + 8); ctx.stroke(); ctx.lineCap = 'butt';
+    }
+  }
+  // «¿sombrero?» tachado
+  const hs = clamp((t - 1) / .4) * (1 - sstep(3.2, 3.6, t));
+  if (hs > 0) {
+    ctx.save(); ctx.globalAlpha = hs; ctx.translate(960, 700); ctx.scale(.7 + .3 * hs, .7 + .3 * hs);
+    ctx.strokeStyle = hsl([350, 90, 50]); ctx.lineWidth = 22; ctx.lineCap = 'round';
+    const c = clamp((t - 1.6) / .5), c2 = clamp((t - 2.1) / .5);
+    ctx.beginPath(); ctx.moveTo(-170, -170); ctx.lineTo(-170 + 340 * c, -170 + 340 * c); ctx.stroke();
+    if (c2 > 0) { ctx.beginPath(); ctx.moveTo(170, -170); ctx.lineTo(170 - 340 * c2, -170 + 340 * c2); ctx.stroke(); }
+    ctx.lineCap = 'butt'; ctx.restore();
+  }
+  narr('Mi dibujo no representaba un *sombrero.* Representaba una *serpiente boa* que digería un *elefante.*', t - .3, 11);
+});
+
+// 7 · Dibujo número 2
+scene(14.5, t => {
+  drawBg((x, y) => mixc([26, 74, 46], [16, 66, 36], clamp((x + y) / (W + H))), { vari: 11 });
+  drawPaper();
+  const clear = ease((t - .6) / 1.6);
+  drawHatFill(mixc(mixc(C.boa, C.boa, 0), [140, 58, 86], clear), { band: mixc(C.boaBand, [150, 50, 80], clear) });
+  const rev = clamp((t - 2.4) / 4.2);
+  drawElephant(rev);
+  caption('Dibujo n.º 2', t - 7.2);
+  // lápiz que acompaña cada trazo
+  let px, py;
+  const idx = Math.min(ELE_PARTS.length - 1, Math.floor(rev * ELE_PARTS.length));
+  const part = ELE_PARTS[idx];
+  const tgt = part.p ? part.p[0] : part.spine ? part.spine[0] : part.c;
+  if (t < 2.4) { const a = ease((t - .2) / 2.2); px = lerp(1950, tgt[0], a); py = lerp(1120, tgt[1], a); }
+  else if (t < 6.8) { px = tgt[0] + Math.sin(t * 13) * 14; py = tgt[1] + Math.cos(t * 11) * 10; }
+  else { const a = ease((t - 6.8) / 1.2); px = lerp(tgt[0], 1990, a); py = lerp(tgt[1], 1160, a); }
+  drawPencil(px, py, -.8, [214, 50, 50]);
+  narr('Entonces dibujé el *interior* de la serpiente boa, para que las personas mayores pudieran entender.', t - .3, 7.4);
+  narr('Siempre necesitan *explicaciones.*', t - 7.9, 6.4, { size: 66, w: 1100, y: 70, seed: 13, paper: [46, 100, 66], font: FONT_DISP, weight: 900, wps: 2.6 });
+});
+
+// 8 · Cierre
+scene(8, t => {
+  drawNightSky(t + 20);
+  drawPlanet(960, 980, 200, t + 4);
+  drawKid(1010, 790, 1.15, t, { scarf: true, wave: 1 });
+  const a = easeBack((t - .5) / .6);
+  if (t > .5) {
+    ctx.save(); ctx.translate(960, 300); ctx.scale(a, a); ctx.rotate(-.02);
+    ctx.font = `900 96px ${FONT_DISP}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round'; ctx.lineWidth = 14; ctx.strokeStyle = INK;
+    ctx.strokeText('Fin de la primera página', 0, 0);
+    ctx.fillStyle = hsl(C.gold); ctx.fillText('Fin de la primera página', 0, 0);
+    ctx.restore();
+  }
+  ctx.save(); ctx.globalAlpha = clamp((t - 1.4) / .6);
+  ctx.font = `800 30px ${FONT_BODY}`; ctx.textAlign = 'center'; ctx.fillStyle = '#fbf1d6';
+  ctx.fillText('Texto: traducción libre de «Le Petit Prince», Antoine de Saint-Exupéry (1943)', 960, 400);
+  ctx.restore();
+});
+
+let acc = 0;
+for (const s of SCENES) { s.start = acc; acc += s.dur; }
+const TOTAL = acc;
+
+/* Transición: barrido de triángulos de tinta */
+const TT = .55;
+function transition(T) {
+  for (let i = 1; i < SCENES.length; i++) {
+    const u = T - SCENES[i].start;
+    if (Math.abs(u) >= TT) continue;
+    for (const tr of BG) {
+      const th = (tr.cx / W) * .6 + tr.h * .4;
+      const a = u < 0 ? clamp(((u + TT) / TT - th) * 5) : 1 - clamp((u / TT - th) * 5);
+      if (a <= 0) continue;
+      ctx.save(); ctx.globalAlpha = a;
+      ctx.strokeStyle = 'rgba(255,201,60,.35)';
+      tri(tr[0], tr[1], tr[2], hsl([255 + tr.h * 30, 50, 12 + tr.h * 9]), 1.5);
+      ctx.restore();
+    }
+  }
+}
+
+/* ================================================================
+   Bucle, tamaño y controles
+   ================================================================ */
+let scale = 1, ox = 0, oy = 0;
+function resize() {
+  const r = cv.getBoundingClientRect(), d = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.max(1, Math.round(r.width * d)); cv.height = Math.max(1, Math.round(r.height * d));
+  scale = Math.min(cv.width / W, cv.height / H);
+  ox = (cv.width - W * scale) / 2; oy = (cv.height - H * scale) / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+function render(T) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#120a26'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.setTransform(scale, 0, 0, scale, ox, oy);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
+  let i = SCENES.length - 1;
+  while (i > 0 && T < SCENES[i].start) i--;
+  DIM = 0;
+  SCENES[i].draw(T - SCENES[i].start);
+  DIM = 0;
+  transition(T);
+  ctx.restore();
+}
+
+const playBtn = document.getElementById('play'), playIcon = document.getElementById('playIcon');
+const seek = document.getElementById('seek'), timeEl = document.getElementById('time'), hud = document.getElementById('hud');
+let T = 0, playing = true, last = performance.now(), ready = false;
+const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+function setPlaying(p) {
+  playing = p;
+  if (playing && T >= TOTAL) T = 0;
+  playIcon.setAttribute('d', playing ? 'M5 3h4v14H5zM11 3h4v14h-4z' : 'M5 3l12 7-12 7z');
+  playBtn.setAttribute('aria-label', playing ? 'Pausar' : 'Reproducir');
+  poke();
+}
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  if (ready) {
+    if (playing) { T += dt; if (T >= TOTAL) { T = TOTAL; setPlaying(false); } }
+    render(Math.min(T, TOTAL - 1e-3));
+    seek.value = Math.round(T / TOTAL * 1000);
+    timeEl.textContent = `${fmt(T)} / ${fmt(TOTAL)}`;
+  }
+  requestAnimationFrame(frame);
+}
+playBtn.addEventListener('click', () => setPlaying(!playing));
+document.getElementById('restart').addEventListener('click', () => { T = 0; setPlaying(true); });
+seek.addEventListener('input', () => { T = seek.value / 1000 * TOTAL; poke(); });
+cv.addEventListener('click', () => setPlaying(!playing));
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' && e.key !== ' ') return;
+  if (e.key === ' ') { e.preventDefault(); setPlaying(!playing); }
+  else if (e.key === 'ArrowRight') { T = Math.min(TOTAL, T + 5); poke(); }
+  else if (e.key === 'ArrowLeft') { T = Math.max(0, T - 5); poke(); }
+  else if (e.key === 'r' || e.key === 'R') { T = 0; setPlaying(true); }
+});
+let idleTimer;
+function poke() {
+  hud.classList.remove('idle');
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => { if (playing) hud.classList.add('idle'); }, 2600);
+}
+window.addEventListener('pointermove', poke);
+window.addEventListener('pointerdown', poke);
+
+window.__seek = s => { T = s; playing = false; render(Math.min(T, TOTAL - 1e-3)); };
+window.__total = TOTAL;
+
+const fontsReady = Promise.all([
+  document.fonts.load(`900 100px "Grandstander"`),
+  document.fonts.load(`800 40px "Nunito"`),
+]).catch(() => {});
+Promise.race([fontsReady, new Promise(r => setTimeout(r, 2500))]).then(() => {
+  layoutCache.clear();
+  ready = true; last = performance.now(); poke();
+});
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
