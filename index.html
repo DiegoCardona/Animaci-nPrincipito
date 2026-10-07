@@ -75,6 +75,29 @@
   .hud input[type="range"] { flex: 1; min-width: 0; accent-color: var(--gold); }
   .hud .time { flex: none; font-weight: 800; font-size: 14px; color: var(--paper); }
   @media (max-width: 480px) { .hud .time { display: none; } }
+  .hud button[aria-pressed="false"] { background: var(--paper); }
+  .music-hint {
+    position: absolute;
+    top: calc(16px + env(safe-area-inset-top, 0px));
+    right: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--gold);
+    color: var(--ink);
+    border: 3px solid var(--ink);
+    border-radius: 4px;
+    box-shadow: 0 5px 0 var(--ink);
+    font: 900 15px var(--font-display);
+    cursor: pointer;
+    clip-path: polygon(3% 0, 100% 6%, 97% 100%, 0 92%);
+    animation: nudge 2.4s ease-in-out infinite;
+  }
+  .music-hint svg { width: 18px; height: 18px; }
+  .music-hint:focus-visible { outline: 3px solid var(--rose); outline-offset: 3px; }
+  @keyframes nudge { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-3deg) translateY(-2px); } }
+  @media (prefers-reduced-motion: reduce) { .music-hint { animation: none; } }
 </style>
 </head>
 <body>
@@ -87,9 +110,16 @@
     <button id="restart" type="button" aria-label="Volver a empezar">
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3a7 7 0 1 1-6.6 4.7l2 .7A5 5 0 1 0 10 5v3L5 4l5-4z" fill="currentColor"/></svg>
     </button>
+    <button id="music" type="button" aria-label="Música ambiente" aria-pressed="false">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 7h4l5-4v14l-5-4H2z" fill="currentColor"/><path id="musicWaves" d="M13.5 6.5a5 5 0 0 1 0 7M15.5 4a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
     <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Posición de la animación">
     <span class="time" id="time">0:00</span>
   </div>
+  <button class="music-hint" id="musicHint" type="button">
+    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 7h4l5-4v14l-5-4H2z" fill="currentColor"/><path d="M13.5 6.5a5 5 0 0 1 0 7M15.5 4a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    Activar música
+  </button>
 </div>
 <script>
 (() => {
@@ -1110,6 +1140,7 @@ function setPlaying(p) {
   if (playing && T >= TOTAL) T = 0;
   playIcon.setAttribute('d', playing ? 'M5 3h4v14H5zM11 3h4v14h-4z' : 'M5 3l12 7-12 7z');
   playBtn.setAttribute('aria-label', playing ? 'Pausar' : 'Reproducir');
+  Music.sync();
   poke();
 }
 function frame(now) {
@@ -1125,7 +1156,7 @@ function frame(now) {
 playBtn.addEventListener('click', () => setPlaying(!playing));
 document.getElementById('restart').addEventListener('click', () => { T = 0; setPlaying(true); });
 seek.addEventListener('input', () => { T = seek.value / 1000 * TOTAL; poke(); });
-cv.addEventListener('click', () => setPlaying(!playing));
+cv.addEventListener('click', () => { if (swallowClick) { swallowClick = false; return; } setPlaying(!playing); });
 window.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' && e.key !== ' ') return;
   if (e.key === ' ') { e.preventDefault(); setPlaying(!playing); }
@@ -1133,6 +1164,157 @@ window.addEventListener('keydown', e => {
   else if (e.key === 'ArrowLeft') { T = Math.max(0, T - 5); poke(); }
   else if (e.key === 'r' || e.key === 'R') { T = 0; setPlaying(true); }
 });
+/* ================================================================
+   Música ambiente generativa (Web Audio, sin archivos)
+   ================================================================ */
+const sceneAt = T => { let i = SCENES.length - 1; while (i > 0 && T < SCENES[i].start) i--; return i; };
+const Music = (() => {
+  // Cada escena tiene un ánimo: progresión, tempo e instrumentos
+  const DREAM = { bpm: 72, beats: 8, prog: [[62, 66, 69, 73], [59, 62, 66, 69], [55, 59, 62, 66], [57, 61, 64, 69]], scale: [74, 76, 78, 81, 83, 86], plink: .32, cutoff: 3200 };
+  const JUNGLE = { bpm: 96, beats: 8, prog: [[57, 60, 64, 67], [50, 57, 62, 66], [57, 60, 64, 67], [55, 59, 62, 67]], scale: [69, 72, 74, 76, 79, 81], plink: .2, marimba: true, shaker: true, cutoff: 3600 };
+  const LULLABY = { bpm: 56, beats: 8, prog: [[55, 59, 62, 66], [52, 55, 59, 62]], scale: [67, 71, 74, 76, 79], plink: .22, cutoff: 1500 };
+  const PLAYFUL = { bpm: 104, beats: 4, prog: [[60, 64, 67, 72], [57, 60, 64, 69], [53, 57, 60, 65], [55, 59, 62, 67]], scale: [72, 74, 76, 79, 81], arp: true, cutoff: 3800 };
+  const MYSTERY = { bpm: 66, beats: 8, prog: [[50, 57, 62, 64], [46, 53, 58, 62], [48, 55, 60, 62], [45, 52, 57, 61]], scale: [69, 70, 74, 76, 77], plink: .25, cutoff: 2400 };
+  const MOODS = [DREAM, DREAM, JUNGLE, LULLABY, PLAYFUL, PLAYFUL, MYSTERY, DREAM, DREAM];
+
+  let ac = null, master, bus, lp, enabled = false, timer = null;
+  let nextTime = 0, step = 0, mood = null, noise = null;
+  const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+
+  function init() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    ac = new AC();
+    master = ac.createGain(); master.gain.value = 0;
+    const comp = ac.createDynamicsCompressor();
+    master.connect(comp); comp.connect(ac.destination);
+    lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = .4;
+    bus = ac.createGain(); bus.gain.value = 1;
+    bus.connect(lp); lp.connect(master);
+    // reverberación: respuesta al impulso de ruido que decae
+    const len = Math.floor(ac.sampleRate * 3.2), ir = ac.createBuffer(2, len, ac.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6);
+    }
+    const verb = ac.createConvolver(); verb.buffer = ir;
+    const wet = ac.createGain(); wet.gain.value = .55;
+    lp.connect(verb); verb.connect(wet); wet.connect(master);
+    noise = ac.createBuffer(1, ac.sampleRate * .2, ac.sampleRate);
+    const nd = noise.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    return true;
+  }
+  function env(g, t, a, peak, d) {
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(peak, t + a);
+    g.gain.exponentialRampToValueAtTime(.0001, t + a + d);
+  }
+  function voice(type, f, t, a, peak, d, detune = 0) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.value = f; o.detune.value = detune;
+    env(g, t, a, peak, d);
+    o.connect(g); g.connect(bus);
+    o.start(t); o.stop(t + a + d + .05);
+  }
+  function pad(m, t, dur) {
+    for (const dt of [-7, 7]) {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'triangle'; o.frequency.value = mtof(m); o.detune.value = dt;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(.022, t + 1.4);
+      g.gain.setValueAtTime(.022, t + dur);
+      g.gain.linearRampToValueAtTime(0, t + dur + 1.8);
+      o.connect(g); g.connect(bus);
+      o.start(t); o.stop(t + dur + 1.9);
+    }
+  }
+  const pluck = (m, t, v = .07) => { voice('sine', mtof(m), t, .004, v, 1.8); voice('sine', mtof(m) * 3, t, .002, v * .18, .5); };
+  const marimba = (m, t, v = .06) => { voice('sine', mtof(m), t, .003, v, .45); voice('triangle', mtof(m) * 4, t, .001, v * .12, .12); };
+  const bass = (m, t, dur) => voice('sine', mtof(m), t, .3, .09, dur);
+  function shaker(t, v) {
+    const s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    s.buffer = noise; f.type = 'highpass'; f.frequency.value = 6000;
+    env(g, t, .004, v, .07);
+    s.connect(f); f.connect(g); g.connect(bus);
+    s.start(t); s.stop(t + .12);
+  }
+  function scheduleStep(t) {
+    const m = MOODS[Math.min(MOODS.length - 1, sceneAt(T))];
+    if (m !== mood) { mood = m; step = 0; lp.frequency.setTargetAtTime(m.cutoff, t, .8); }
+    const half = 30 / m.bpm, per = m.beats * 2;
+    const chord = m.prog[Math.floor(step / per) % m.prog.length], s = step % per;
+    if (s === 0) {
+      chord.forEach(n => pad(n, t, per * half));
+      bass(chord[0] - 12 - (chord[0] > 57 ? 12 : 0), t, per * half * .9);
+    }
+    if (m.arp) {
+      const seq = [0, 1, 2, 3, 2, 1, 0, 2];
+      marimba(chord[seq[step % 8]] + 12, t, step % 2 ? .045 : .065);
+      if (s === 4 && Math.random() < .5) pluck(m.scale[Math.floor(Math.random() * m.scale.length)], t, .05);
+    } else if (Math.random() < m.plink * (step % 2 ? .6 : 1)) {
+      pluck(m.scale[Math.floor(Math.random() * m.scale.length)], t);
+    }
+    if (m.marimba && [1, 0, 1, 1, 0, 1, 0, 1][step % 8]) marimba(chord[(step * 3) % chord.length] + (step % 4 === 3 ? 12 : 0), t, .05);
+    if (m.shaker) shaker(t, step % 2 ? .012 : .025);
+    step++;
+    return half;
+  }
+  function tick() {
+    if (!ac || ac.state !== 'running') return;
+    if (nextTime < ac.currentTime) nextTime = ac.currentTime + .05;
+    while (nextTime < ac.currentTime + .25) nextTime += scheduleStep(nextTime);
+  }
+  function apply() {
+    if (!ac) return;
+    const audible = enabled && playing;
+    const now = ac.currentTime;
+    master.gain.cancelScheduledValues(now);
+    master.gain.setValueAtTime(master.gain.value, now);
+    if (audible) {
+      ac.resume();
+      master.gain.linearRampToValueAtTime(.6, now + 1.2);
+      if (!timer) timer = setInterval(tick, 60);
+    } else {
+      master.gain.linearRampToValueAtTime(0, now + .35);
+      clearInterval(timer); timer = null;
+      setTimeout(() => { if (ac && !(enabled && playing)) ac.suspend(); }, 450);
+    }
+  }
+  return {
+    get enabled() { return enabled; },
+    set(on) {
+      if (on && !ac && !init()) return;
+      enabled = on; mood = null;
+      apply();
+    },
+    sync: apply,
+  };
+})();
+const musicBtn = document.getElementById('music'), musicHint = document.getElementById('musicHint');
+let musicChosen = false;
+function setMusic(on) {
+  musicChosen = true;
+  Music.set(on);
+  musicBtn.setAttribute('aria-pressed', String(Music.enabled));
+  musicBtn.setAttribute('aria-label', Music.enabled ? 'Silenciar música' : 'Activar música');
+  document.getElementById('musicWaves').style.opacity = Music.enabled ? 1 : .2;
+  musicHint.hidden = true;
+}
+musicBtn.addEventListener('click', e => { e.stopPropagation(); setMusic(!Music.enabled); });
+musicHint.addEventListener('click', e => { e.stopPropagation(); setMusic(true); });
+// La primera interacción del espectador activa la música (los navegadores exigen un gesto)
+let swallowClick = false;
+const firstGesture = e => {
+  if (musicChosen) return;
+  swallowClick = e.target === cv; // ese primer toque solo enciende la música, no pausa
+  setMusic(true);
+};
+window.addEventListener('pointerdown', firstGesture, { once: true });
+window.addEventListener('keydown', firstGesture, { once: true });
+window.addEventListener('keydown', e => { if (e.key === 'm' || e.key === 'M') setMusic(!Music.enabled); });
+document.getElementById('musicWaves').style.opacity = .2;
+
 let idleTimer;
 function poke() {
   hud.classList.remove('idle');

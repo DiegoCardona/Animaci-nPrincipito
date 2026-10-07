@@ -11,6 +11,7 @@ Controles:
 - Clic en la escena o barra espaciadora: pausar o reanudar
 - ← / →: retroceder o avanzar 5 segundos
 - R: volver a empezar
+- M o botón del altavoz: activar o silenciar la música
 - Barra inferior: saltar a cualquier momento
 
 ## Escenas (≈1 min 44 s)
@@ -24,6 +25,12 @@ Controles:
 7. El «sombrero» se revela como una boa.
 8. Dibujo número 2: el elefante dentro de la boa. «Siempre necesitan explicaciones».
 9. Cierre.
+
+## Música
+
+La música ambiente se genera en el navegador con Web Audio, sin archivos de audio: pads suaves, notas de caja de música, bajo y reverberación. Cada escena tiene su ánimo: soñador en la portada y el cierre, marimba y maracas en la selva, una nana lenta durante la digestión, un arpegio juguetón con los dibujos y las personas mayores, y acordes misteriosos al revelar la boa.
+
+Los navegadores no permiten sonido sin un gesto del usuario, así que la música empieza con el primer toque, clic o tecla (o con el botón «Activar música»). Se detiene al pausar.
 
 ## Sobre el texto
 
