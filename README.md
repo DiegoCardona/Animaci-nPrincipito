@@ -29,9 +29,18 @@ Controles:
 
 ## Narración
 
-El texto se lee en voz alta con la síntesis de voz del propio navegador (Web Speech API). Se elige una voz en español latinoamericano (es-MX, es-US, es-419…) si el dispositivo la tiene, y se le sube el tono para que suene infantil. La respuesta de las personas mayores usa un tono grave. Mientras habla la voz, la música baja de volumen, y si una frase tarda más que su escena, la animación espera con el texto en pantalla.
+La voz está pregrabada en `narracion.js` (y en `audio/*.mp3` para escucharla aparte). Se generó con Kokoro, un modelo de voz neuronal abierto, en español latinoamericano (es-419, acento neutro). La voz femenina del modelo se transformó en voz infantil con el vocoder WORLD: tono más alto y entonación más viva, y formantes desplazados hacia arriba, como un tracto vocal más pequeño. La pregunta de las personas mayores usa la voz masculina del modelo sin transformar.
 
-La voz exacta depende del sistema: Windows, macOS, Android e iOS traen voces distintas, y en algunos solo hay español de España. Las voces «naturales» o «en línea» (Edge, Chrome) suenan mejor.
+La animación se adapta a la voz y no al revés: si una frase necesita más tiempo, su escena se alarga y el texto aparece palabra por palabra al ritmo en que se dice. Mientras habla la voz, la música baja.
+
+Para regenerar las voces (por ejemplo, para cambiar el texto o el tono):
+
+```
+pip install kokoro-onnx soundfile pyworld numpy "setuptools<81"
+python tools/generar_narracion.py CARPETA_CON_LOS_MODELOS
+```
+
+Los modelos `kokoro-v1.0.onnx` y `voices-v1.0.bin` están en las versiones publicadas de [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0). Los parámetros `CHILD_F0` y `CHILD_FORMANT` del script controlan qué tan infantil suena.
 
 ## Música
 

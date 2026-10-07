@@ -79,8 +79,9 @@
   .hud button[aria-pressed="false"] { background: var(--paper); }
   .music-hint {
     position: absolute;
-    top: calc(16px + env(safe-area-inset-top, 0px));
-    right: 16px;
+    bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    translate: -50% 0;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -125,6 +126,7 @@
     Activar voz y música
   </button>
 </div>
+<script src="narracion.js"></script>
 <script>
 (() => {
 'use strict';
@@ -370,7 +372,7 @@ function narr(text, t, dur, o = {}) {
   ctx.closePath(); ctx.fillStyle = 'rgba(27,16,51,.45)'; ctx.fill();
   ctx.restore();
   facet(panelPts(x, y, w, h, o.seed || 3), o.paper || [44, 92, 92], { lw: 6, contrast: 4, seed: o.seed || 3, ilw: 1.4, iink: 'rgba(27,16,51,.16)' });
-  words(L, font, size, cx, y + pad * .8, t - .35, { wps: o.wps, hlColor: o.hlColor });
+  words(L, font, size, cx, y + pad * .8, t - .35, { wps: o.wps ?? REVEAL.get(text), hlColor: o.hlColor });
   ctx.restore();
   DIM = dimSave;
 }
@@ -1020,7 +1022,7 @@ scene(13.5, t => {
     ctx.lineWidth = 7; ctx.strokeStyle = INK; ctx.lineJoin = 'round'; ctx.stroke();
     const font = `900 52px ${FONT_DISP}`;
     const L = layout(TXT.sombrero, font, 640);
-    words(L, font, 52, 1340, 210 - L.lines.length * 52 * 1.2 / 2 - 6, bt - .2, { wps: 4, lh: 1.2, hlColor: '#d6246f' });
+    words(L, font, 52, 1340, 210 - L.lines.length * 52 * 1.2 / 2 - 6, bt - .2, { wps: REVEAL.get(TXT.sombrero) ?? 4, lh: 1.2, hlColor: '#d6246f' });
     ctx.restore();
   }
 });
@@ -1077,7 +1079,7 @@ scene(14.5, t => {
   else { const a = ease((t - 6.8) / 1.2); px = lerp(tgt[0], 1990, a); py = lerp(tgt[1], 1160, a); }
   drawPencil(px, py, -.8, [214, 50, 50]);
   narr(TXT.interior, t - .3, 7.4);
-  narr(TXT.siempre, t - 7.9, 6.4, { size: 66, w: 1100, y: 70, seed: 13, paper: [46, 100, 66], font: FONT_DISP, weight: 900, wps: 2.6 });
+  narr(TXT.siempre, t - 7.9, 6.4, { size: 66, w: 1100, y: 70, seed: 13, paper: [46, 100, 66], font: FONT_DISP, weight: 900 });
 });
 
 // 8 · Cierre
@@ -1100,9 +1102,59 @@ scene(8, t => {
   ctx.restore();
 });
 
+/* La animación se adapta a la voz: cada frase ocupa un tramo [inicio, fin]
+   de su escena (en segundos de diseño). Si la voz necesita más tiempo, ese
+   tramo se estira y la escena dura más; el resto conserva su ritmo. */
+const NARR = window.NARRACION || {};
+const LEAD = .35, TAIL = .95; // la voz entra tras el panel; el panel queda un momento al terminar
+const BEATS = [
+  [0, .8, 6.0, 'titulo'],
+  [1, .3, 8.6, 'libro', TXT.libro],
+  [2, .5, 6.3, 'boa', TXT.boa], [2, 6.6, 14.2, 'cita1', TXT.cita1],
+  [3, .4, 12.0, 'cita2', TXT.cita2],
+  [4, .3, 8.4, 'reflexion', TXT.reflexion], [4, 8.7, 13.3, 'dibujo1', TXT.dibujo1],
+  [5, .3, 7.1, 'mostre', TXT.mostre], [5, 7.1, 7.6, 'respondieron', TXT.respondieron], [5, 7.6, 13.2, 'sombrero', TXT.sombrero],
+  [6, .3, 11.3, 'noera', TXT.noera],
+  [7, .3, 7.7, 'interior', TXT.interior], [7, 7.9, 14.3, 'siempre', TXT.siempre],
+  [8, .6, 7.4, 'fin'],
+];
+const REVEAL = new Map(); // texto del panel -> palabras por segundo (en tiempo de diseño)
+SCENES.forEach((sc, i) => {
+  const knots = [[0, 0]];
+  for (const [si, a, b, id, text] of BEATS) {
+    if (si !== i) continue;
+    const [d0, r0] = knots[knots.length - 1];
+    const ra = r0 + (a - d0);
+    const clip = NARR[id] ? NARR[id].dur : 0;
+    const R = Math.max(b - a, clip ? clip + LEAD + TAIL : 0);
+    knots.push([a, ra], [b, ra + R]);
+    if (text && clip) {
+      const words = text.split(' ').length, k = (b - a) / R; // diseño por segundo real
+      REVEAL.set(text, words / (clip * k) * 1.08);
+    }
+  }
+  const [dl, rl] = knots[knots.length - 1];
+  knots.push([sc.dur, rl + (sc.dur - dl)]);
+  sc.knots = knots;
+  sc.rdur = knots[knots.length - 1][1];
+});
+// tiempo real dentro de la escena <-> tiempo de diseño
+function warp(knots, v, from, to) {
+  for (let j = 1; j < knots.length; j++) {
+    const p = knots[j - 1], q = knots[j];
+    if (v <= q[from] || j === knots.length - 1) {
+      const span = q[from] - p[from];
+      return span > 0 ? p[to] + (v - p[from]) / span * (q[to] - p[to]) : q[to];
+    }
+  }
+  return v;
+}
 let acc = 0;
-for (const s of SCENES) { s.start = acc; acc += s.dur; }
+for (const s of SCENES) { s.start = acc; acc += s.rdur; }
 const TOTAL = acc;
+const CUES = BEATS.filter(bt => NARR[bt[3]]).map(([si, a, , id]) => ({
+  id, start: SCENES[si].start + warp(SCENES[si].knots, a, 0, 1) + LEAD, dur: NARR[id].dur,
+}));
 
 /* Transición: barrido de triángulos de tinta */
 const TT = .55;
@@ -1144,7 +1196,7 @@ function render(T) {
   let i = SCENES.length - 1;
   while (i > 0 && T < SCENES[i].start) i--;
   DIM = 0;
-  SCENES[i].draw(T - SCENES[i].start);
+  SCENES[i].draw(warp(SCENES[i].knots, T - SCENES[i].start, 1, 0));
   DIM = 0;
   transition(T);
   ctx.restore();
@@ -1160,15 +1212,14 @@ function setPlaying(p) {
   playIcon.setAttribute('d', playing ? 'M5 3h4v14H5zM11 3h4v14h-4z' : 'M5 3l12 7-12 7z');
   playBtn.setAttribute('aria-label', playing ? 'Pausar' : 'Reproducir');
   Music.sync();
-  Voice.sync();
   poke();
 }
 function frame(now) {
   const dt = Math.min(.05, (now - last) / 1000); last = now;
   if (ready) {
     if (playing) {
-      const nt = Voice.advance(T, T + dt);
-      T = nt; if (T >= TOTAL) { T = TOTAL; setPlaying(false); }
+      Voice.update(T, T + dt);
+      T += dt; if (T >= TOTAL) { T = TOTAL; setPlaying(false); }
     }
     render(Math.min(T, TOTAL - 1e-3));
     seek.value = Math.round(T / TOTAL * 1000);
@@ -1200,7 +1251,7 @@ const Music = (() => {
   const MYSTERY = { bpm: 66, beats: 8, prog: [[50, 57, 62, 64], [46, 53, 58, 62], [48, 55, 60, 62], [45, 52, 57, 61]], scale: [69, 70, 74, 76, 77], plink: .25, cutoff: 2400 };
   const MOODS = [DREAM, DREAM, JUNGLE, LULLABY, PLAYFUL, PLAYFUL, MYSTERY, DREAM, DREAM];
 
-  let ac = null, master, bus, lp, enabled = false, timer = null, level = .6;
+  let ac = null, master, bus, lp, voiceOut, enabled = false, timer = null, level = .6;
   let nextTime = 0, step = 0, mood = null, noise = null;
   const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -1211,6 +1262,7 @@ const Music = (() => {
     master = ac.createGain(); master.gain.value = 0;
     const comp = ac.createDynamicsCompressor();
     master.connect(comp); comp.connect(ac.destination);
+    voiceOut = ac.createGain(); voiceOut.gain.value = 1; voiceOut.connect(comp);
     lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = .4;
     bus = ac.createGain(); bus.gain.value = 1;
     bus.connect(lp); lp.connect(master);
@@ -1290,22 +1342,21 @@ const Music = (() => {
   }
   function apply() {
     if (!ac) return;
-    const audible = enabled && playing;
-    const now = ac.currentTime;
+    const run = playing && (enabled || Voice.enabled), now = ac.currentTime;
     master.gain.cancelScheduledValues(now);
     master.gain.setValueAtTime(master.gain.value, now);
-    if (audible) {
+    master.gain.linearRampToValueAtTime(run && enabled ? level : 0, now + (run && enabled ? .8 : .35));
+    if (run) {
       ac.resume();
-      master.gain.linearRampToValueAtTime(level, now + .8);
-      if (!timer) timer = setInterval(tick, 60);
-    } else {
-      master.gain.linearRampToValueAtTime(0, now + .35);
-      clearInterval(timer); timer = null;
-      setTimeout(() => { if (ac && !(enabled && playing)) ac.suspend(); }, 450);
+      if (enabled && !timer) timer = setInterval(tick, 60);
     }
+    if (!run || !enabled) { clearInterval(timer); timer = null; }
+    if (!run) setTimeout(() => { if (ac && !(playing && (enabled || Voice.enabled))) ac.suspend(); }, 450);
   }
   return {
     get enabled() { return enabled; },
+    ensure() { return ac || (init() ? ac : null); },
+    get voiceOut() { return voiceOut; },
     set(on) {
       if (on && !ac && !init()) return;
       enabled = on; mood = null;
@@ -1344,81 +1395,52 @@ window.addEventListener('keydown', e => { if (e.key === 'm' || e.key === 'M') se
 document.getElementById('musicWaves').style.opacity = .2;
 
 /* ================================================================
-   Narración con voz (Web Speech API del navegador)
+   Narración: clips de voz infantil pregrabados (narracion.js)
    ================================================================ */
-// Momento de cada frase: escena, inicio y final del panel (segundos locales)
-const CUES = [
-  [0, .8, 6.0, 'El Principito. Capítulo uno.'],
-  [1, .3, 8.6, TXT.libro], [2, .5, 6.3, TXT.boa], [2, 6.6, 14.2, TXT.cita1],
-  [3, .4, 12.0, TXT.cita2], [4, .3, 8.4, TXT.reflexion], [4, 8.7, 13.3, TXT.dibujo1],
-  [5, .3, 7.1, TXT.mostre], [5, 7.1, 7.6, TXT.respondieron], [5, 7.6, 13.2, TXT.sombrero, 'adult'],
-  [6, .3, 11.3, TXT.noera], [7, .3, 7.7, TXT.interior], [7, 7.9, 14.3, TXT.siempre],
-  [8, .6, 7.4, 'Fin de la primera página.'],
-].map(([sc, a, b, text, role]) => ({
-  start: SCENES[sc].start + a,
-  hold: SCENES[sc].start + b - .7, // el panel sigue visible aquí: se espera a la voz
-  text: text.replace(/[*«»]/g, ''),
-  role: role || 'kid',
-}));
 const Voice = (() => {
-  const synth = window.speechSynthesis;
-  const supported = !!(synth && window.SpeechSynthesisUtterance);
-  let enabled = false, pending = 0, holdSince = 0, kidVoice = null, adultVoice = null;
-  const LATAM = /^es[-_](419|mx|us|co|cl|pe|ar|ve|ec|gt|cr|pa|uy|py|bo|do|hn|ni|sv|pr|cu)/i;
-  const FEMALE = /paulina|sabina|dalia|m[oó]nica|marisol|elvira|helena|laura|lupe|ximena|camila|renata|paloma|soledad|google español de estados unidos|female|mujer/i;
-  const MALE = /jorge|juan|diego|pablo|ra[uú]l|carlos|[aá]lvaro|enrique|gerardo|\bmale|hombre/i;
-  function pick() {
-    const vs = synth.getVoices().filter(v => /^es/i.test(v.lang));
-    if (!vs.length) return;
-    const base = v => (LATAM.test(v.lang) ? 4 : 0) + (/^es[-_](mx|419|us)/i.test(v.lang) ? 2 : 0) + (/natural|neural|online/i.test(v.name) ? 2 : 0);
-    kidVoice = vs.slice().sort((a, b) => (base(b) + (FEMALE.test(b.name) ? 3 : 0)) - (base(a) + (FEMALE.test(a.name) ? 3 : 0)))[0];
-    adultVoice = vs.slice().sort((a, b) => (base(b) + (MALE.test(b.name) ? 3 : 0)) - (base(a) + (MALE.test(a.name) ? 3 : 0)))[0];
+  const supported = Object.keys(NARR).length > 0 && !!(window.AudioContext || window.webkitAudioContext);
+  let enabled = false, buffers = null, loading = null, playingNow = [], resync = true;
+  function load() {
+    const ac = Music.ensure();
+    if (!ac) return Promise.resolve();
+    return loading || (loading = Promise.all(Object.entries(NARR).map(([id, c]) => {
+      const bin = atob(c.src.split(',')[1]), arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return new Promise(res => ac.decodeAudioData(arr.buffer, buf => res([id, buf]), () => res([id, null])));
+    })).then(list => { buffers = Object.fromEntries(list); resync = true; }));
   }
-  if (supported) { pick(); synth.addEventListener?.('voiceschanged', pick); }
-  function speak(c) {
-    const u = new SpeechSynthesisUtterance(c.text);
-    const adult = c.role === 'adult';
-    try { u.voice = adult ? adultVoice : kidVoice; } catch (e) { /* voz no válida: la del sistema */ }
-    u.lang = u.voice ? u.voice.lang : 'es-MX';
-    // voz infantil: tono alto y ritmo pausado; las personas mayores, grave
-    u.pitch = adult ? .7 : 1.6;
-    u.rate = adult ? .9 : .92;
-    pending++; Music.duck(true);
-    const done = () => { pending = Math.max(0, pending - 1); if (!pending) Music.duck(false); };
-    u.onend = done; u.onerror = done;
-    try { synth.speak(u); } catch (e) { done(); }
+  function stopAll() {
+    for (const n of playingNow) { try { n.stop(); } catch (e) { /* ya terminó */ } }
+    playingNow = [];
+    Music.duck(false);
   }
-  function reset() {
-    if (!supported) return;
-    synth.cancel(); pending = 0; holdSince = 0; Music.duck(false);
+  function play(cue, offset) {
+    const ac = Music.ensure(), buf = buffers && buffers[cue.id];
+    if (!ac || !buf || offset >= buf.duration) return;
+    const src = ac.createBufferSource();
+    src.buffer = buf; src.connect(Music.voiceOut);
+    src.onended = () => { playingNow = playingNow.filter(n => n !== src); if (!playingNow.length) Music.duck(false); };
+    playingNow.push(src); Music.duck(true);
+    src.start(ac.currentTime + .02, Math.max(0, offset));
   }
   return {
     supported,
     get enabled() { return enabled; },
     set(on) {
       enabled = on && supported;
-      if (!enabled) reset();
-      else if (!kidVoice) pick();
+      stopAll();
+      if (enabled) load();
+      resync = true;
+      Music.sync();
     },
-    sync() {
-      if (!supported || !enabled) return;
-      if (playing) synth.resume(); else synth.pause();
-    },
-    reset,
-    // Avanza el tiempo de t0 a t1: lanza las frases que empiezan y, si la voz
-    // aún habla cuando el panel va a desaparecer, detiene ahí la animación.
-    advance(t0, t1) {
-      if (!enabled) return t1;
+    // tras saltar en la línea de tiempo, retomar la frase que corresponda
+    reset() { stopAll(); resync = true; },
+    update(t0, t1) {
+      if (!enabled || !buffers) return;
       for (const c of CUES) {
-        if (c.start > t0 && c.start <= t1) speak(c);
-        if (pending && t0 <= c.hold && t1 > c.hold && c.start < t0) {
-          if (!holdSince) holdSince = performance.now();
-          if (performance.now() - holdSince < 12000) return c.hold;
-          pending = 0; Music.duck(false); // la voz no avisó del final: seguir
-        }
+        if (resync ? (t1 >= c.start && t1 - c.start < c.dur * .5) : (c.start > t0 && c.start <= t1)) play(c, t1 - c.start);
       }
-      holdSince = 0;
-      return t1;
+      resync = false;
     },
   };
 })();
